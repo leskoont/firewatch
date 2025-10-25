@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "firewatch"
+version = "0.1.0"
+description = "Fire and smoke detection on video streams with Telegram alerts"
+readme = "README.md"
+license = { text = "AGPL-3.0-only" }
+requires-python = ">=3.10"
+authors = [{ name = "Maxim" }]
+dependencies = [
+    "numpy>=1.23",
+    "opencv-python>=4.7",
+    "onnxruntime>=1.16",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.4",
+    "onnx>=1.14",
+]
+
+[tool.setuptools.packages.find]
+include = ["firewatch*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
