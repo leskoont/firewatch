@@ -26,6 +26,9 @@ dev = [
     "onnx>=1.14",
 ]
 
+[project.scripts]
+firewatch = "firewatch.cli:main"
+
 [tool.setuptools.packages.find]
 include = ["firewatch*"]
 

@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
 import sys
 from pathlib import Path
 
 import cv2
 import numpy as np
+import yaml
 
+from firewatch.config import Settings, load_settings
 from firewatch.detector import OnnxDetector
 from firewatch.draw import draw_detections
 
@@ -19,6 +22,48 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 def require_model(path: Path) -> None:
     if not path.exists():
         sys.exit(f"model not found: {path}")
+
+
+def load_config(path: str) -> Settings:
+    try:
+        return load_settings(path)
+    except (OSError, ValueError, yaml.YAMLError) as e:
+        sys.exit(f"{path}: {e}")
+
+
+def build_detector(settings: Settings) -> OnnxDetector:
+    m = settings.model
+    require_model(m.path)
+    det = OnnxDetector(m.path, m.providers, conf=m.conf, iou=m.iou)
+    log.info("model %s, providers %s, classes %s", m.path.name, det.providers, det.names)
+    return det
+
+
+def cmd_run(args) -> None:
+    from firewatch.monitor import Monitor
+    from firewatch.notify import TelegramNotifier
+
+    settings = load_config(args.config)
+    if not any(c.enabled for c in settings.cameras):
+        sys.exit("no enabled cameras in config")
+    detector = build_detector(settings)
+
+    tg = settings.telegram
+    notifier = TelegramNotifier(tg.token, tg.chat_id, tg.timeout) if tg.enabled else None
+    if notifier is None:
+        log.info("telegram disabled, alerts go to the log only")
+
+    monitor = Monitor(settings, detector, notifier)
+    monitor.start()
+    signal.signal(signal.SIGTERM, lambda *_: monitor.stop())
+    try:
+        monitor.wait()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        monitor.stop()
+    if notifier:
+        notifier.close()
 
 
 def cmd_detect(args) -> None:
@@ -60,6 +105,10 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="firewatch")
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("run", help="watch cameras from config, send alerts")
+    p.add_argument("-c", "--config", default="configs/cameras.yaml")
+    p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("detect", help="run the model on images and save annotated copies")
     p.add_argument("inputs", nargs="+")

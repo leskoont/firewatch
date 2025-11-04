@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import pytest
 
 from firewatch.cli import main
 
@@ -14,3 +15,11 @@ def test_detect_output_without_suffix(dummy_model, tmp_path):
     out = tmp_path / "out"
     main(["detect", str(src / "frame"), str(src / "b.png"), "-m", str(dummy_model), "-o", str(out)])
     assert sorted(p.name for p in out.iterdir()) == ["b.png", "frame.jpg"]
+
+
+def test_run_without_enabled_cameras(dummy_model, tmp_path):
+    cfg = tmp_path / "cfg.yaml"
+    model = dummy_model.as_posix()
+    cfg.write_text(f"model: {{path: '{model}'}}\ncameras: [{{name: a, source: a.mp4, enabled: false}}]\n")
+    with pytest.raises(SystemExit, match="no enabled cameras"):
+        main(["run", "-c", str(cfg)])
