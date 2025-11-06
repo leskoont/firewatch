@@ -48,7 +48,12 @@ class CameraWorker(threading.Thread):
         self.on_alert = on_alert
         self.stop_event = threading.Event()
         self.gate = AlertGate(cfg.thresholds, cfg.window, cfg.min_hits, cfg.cooldown_s)
-        self.stream = VideoStream(cfg.source, every=cfg.process_every)
+        self.stream = VideoStream(
+            cfg.source,
+            live=cfg.is_live,
+            every=cfg.process_every,
+            reconnect_delay=cfg.reconnect_delay_s,
+        )
 
     def filter(self, dets: list[Detection]) -> list[Detection]:
         th = self.cfg.thresholds
