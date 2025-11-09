@@ -32,9 +32,9 @@ def save_snapshot(directory: Path, stem: str, image: np.ndarray) -> Path | None:
     try:
         directory.mkdir(parents=True, exist_ok=True)
     except OSError as e:
-        log.error("cannot save snaphot %s: %s", path, e)
+        log.error("cannot save snapshot %s: %s", path, e)
         return None
     if not cv2.imwrite(str(path), image, [cv2.IMWRITE_JPEG_QUALITY, 90]):
-        log.error("cannot save snaphot %s", path)
+        log.error("cannot save snapshot %s", path)
         return None
     return path
