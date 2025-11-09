@@ -5,12 +5,12 @@ import threading
 from dataclasses import dataclass
 from datetime import datetime
 
-import cv2
 import numpy as np
 
-from firewatch.config import CameraConfig, Settings
+from firewatch.config import CameraConfig, Settings, StorageConfig
 from firewatch.detector import Detection
 from firewatch.draw import draw_detections
+from firewatch.events import encode_jpeg, event_stem, save_snapshot
 from firewatch.notify import TelegramNotifier
 from firewatch.smoothing import AlertGate
 from firewatch.stream import VideoStream
@@ -35,16 +35,12 @@ class Alert:
         return f"[{self.camera}] {found}\n{self.time:%Y-%m-%d %H:%M:%S}"
 
 
-def encode_jpeg(image: np.ndarray, quality: int = 90) -> bytes:
-    ok, buf = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, quality])
-    return buf.tobytes() if ok else b""
-
-
 class CameraWorker(threading.Thread):
-    def __init__(self, cfg: CameraConfig, detector, on_alert):
+    def __init__(self, cfg: CameraConfig, detector, storage: StorageConfig, on_alert):
         super().__init__(name=f"camera-{cfg.name}", daemon=True)
         self.cfg = cfg
         self.detector = detector
+        self.storage = storage
         self.on_alert = on_alert
         self.stop_event = threading.Event()
         self.gate = AlertGate(cfg.thresholds, cfg.window, cfg.min_hits, cfg.cooldown_s)
@@ -54,6 +50,8 @@ class CameraWorker(threading.Thread):
             every=cfg.process_every,
             reconnect_delay=cfg.reconnect_delay_s,
         )
+        self.frames_processed = 0
+        self._last_hit: dict[str, tuple[int, np.ndarray, list[Detection]]] = {}
 
     def filter(self, dets: list[Detection]) -> list[Detection]:
         th = self.cfg.thresholds
@@ -69,12 +67,25 @@ class CameraWorker(threading.Thread):
         log.info("camera %s: stopped", self.cfg.name)
 
     def _process(self, frame: np.ndarray, dets: list[Detection]) -> None:
+        self.frames_processed += 1
         due = self.gate.update(d.label for d in dets)
+        for label in {d.label for d in dets}:
+            self._last_hit[label] = (self.frames_processed, frame, dets)
         if not due:
             return
-        shown = [d for d in dets if d.label in due]
-        alert = Alert(self.cfg.name, due, shown, encode_jpeg(draw_detections(frame, shown)), datetime.now())
-        log.warning("ALERT %s", alert.caption.replace("\n", ", "))
+
+        # the confirming frame itself may be a miss: show the latest frame where these classes were seen
+        hits = [self._last_hit[c] for c in due]
+        _, image, image_dets = max(hits, key=lambda h: h[0])
+        shown = [d for d in image_dets if d.label in due]
+        scored = [d for c in due for d in self._last_hit[c][2] if d.label == c]
+
+        now = datetime.now()
+        image = draw_detections(image, shown)
+        alert = Alert(self.cfg.name, due, scored, encode_jpeg(image), now)
+        stem = event_stem(self.cfg.name, now)
+        jpg = self.storage.snapshots and save_snapshot(self.storage.dir, stem, image)
+        log.warning("ALERT %s (%s)", alert.caption.replace("\n", ", "), jpg.name if jpg else "no snapshot")
         self.on_alert(alert)
 
     def stop(self) -> None:
@@ -88,7 +99,9 @@ class Monitor:
         self.notifier = notifier
         self._send_lock = threading.Lock()
         self.workers = [
-            CameraWorker(cam, detector, self._dispatch) for cam in settings.cameras if cam.enabled
+            CameraWorker(cam, detector, settings.storage, self._dispatch)
+            for cam in settings.cameras
+            if cam.enabled
         ]
 
     def _dispatch(self, alert: Alert) -> None:

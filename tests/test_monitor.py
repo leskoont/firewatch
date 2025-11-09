@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import pytest
 
-from firewatch.config import CameraConfig, Settings
+from firewatch.config import CameraConfig, Settings, StorageConfig
 from firewatch.detector import Detection
 from firewatch.monitor import CameraWorker, Monitor
 
@@ -28,20 +28,21 @@ def frame():
     return np.zeros((120, 160, 3), np.uint8)
 
 
-def make_worker(detector, alerts, **cam):
+def make_worker(tmp_path, detector, alerts, **cam):
     cfg = CameraConfig(name="cam1", source="video.mp4", window=4, min_hits=3, cooldown_s=600, **cam)
-    return CameraWorker(cfg, detector, alerts.append)
+    storage = StorageConfig(dir=tmp_path, snapshots=True)
+    return CameraWorker(cfg, detector, storage, alerts.append)
 
 
-def test_per_class_thresholds():
-    w = make_worker(None, [], thresholds={"fire": 0.5, "smoke": 0.7})
+def test_per_class_thresholds(tmp_path):
+    w = make_worker(tmp_path, None, [], thresholds={"fire": 0.5, "smoke": 0.7})
     kept = w.filter([det("fire", 0.55), det("smoke", 0.6), det("smoke", 0.75), det("person", 0.99)])
     assert [(d.label, d.score) for d in kept] == [("fire", 0.55), ("smoke", 0.75)]
 
 
-def test_alert_after_persistent_detection(frame):
+def test_alert_after_persistent_detection(tmp_path, frame):
     alerts = []
-    w = make_worker(None, alerts)
+    w = make_worker(tmp_path, None, alerts)
     for dets in [[det("fire", 0.9)], [], [det("fire", 0.8)], [det("fire", 0.7)], [det("fire", 0.9)]]:
         w._process(frame, dets)
 
@@ -49,12 +50,33 @@ def test_alert_after_persistent_detection(frame):
     a = alerts[0]
     assert a.camera == "cam1" and a.labels == ["fire"]
     assert "cam1" in a.caption and "0.70" in a.caption
+    assert len(list(tmp_path.glob("cam1_*.jpg"))) == 1
+    assert w.frames_processed == 5
     assert cv2.imdecode(np.frombuffer(a.jpeg, np.uint8), cv2.IMREAD_COLOR).any()  # boxes drawn
 
 
-def test_flicker_does_not_alert(frame):
+def test_alert_on_a_miss_frame_shows_last_boxes(tmp_path, frame):
+    from firewatch.smoothing import AlertGate
+
+    now = [0.0]
     alerts = []
-    w = make_worker(None, alerts)
+    w = make_worker(tmp_path, None, alerts)
+    w.gate = AlertGate(w.cfg.thresholds, window=3, min_hits=2, cooldown_s=10, clock=lambda: now[0])
+    w._process(frame, [det("smoke", 0.9)])
+    w._process(frame, [det("smoke", 0.8)])
+    assert len(alerts) == 1
+
+    # cooldown is over while the window still holds two hits, current frame is empty
+    now[0] = 11.0
+    w._process(frame, [])
+    assert len(alerts) == 2
+    assert [d.score for d in alerts[1].detections] == [0.8]
+    assert alerts[1].jpeg.startswith(b"\xff\xd8")
+
+
+def test_flicker_does_not_alert(tmp_path, frame):
+    alerts = []
+    w = make_worker(tmp_path, None, alerts)
     for i in range(20):
         w._process(frame, [det("smoke", 0.9)] if i % 3 == 0 else [])
     assert alerts == []
@@ -70,14 +92,15 @@ def test_worker_runs_over_video_file(tmp_path):
     detector = ScriptedDetector([[det("fire", 0.9)]] * 12)
     alerts = []
     cfg = CameraConfig(name="file", source=str(path), process_every=2, window=3, min_hits=2)
-    w = CameraWorker(cfg, detector, alerts.append)
+    w = CameraWorker(cfg, detector, StorageConfig(dir=tmp_path / "ev"), alerts.append)
     w.run()
 
     assert len(detector.calls) == 6
     assert len(alerts) == 1
+    assert len(list((tmp_path / "ev").glob("file_*.jpg"))) == 1
 
 
-def test_monitor_dispatches_to_notifier(frame):
+def test_monitor_dispatches_to_notifier(tmp_path, frame):
     sent = []
 
     class Notifier:
@@ -86,6 +109,7 @@ def test_monitor_dispatches_to_notifier(frame):
             return True
 
     settings = Settings(
+        storage=StorageConfig(dir=tmp_path, snapshots=False),
         cameras=[
             CameraConfig(name="a", source="a.mp4", window=1, min_hits=1),
             CameraConfig(name="b", source="b.mp4", enabled=False),

@@ -35,6 +35,11 @@ class TelegramConfig(BaseModel):
         return self
 
 
+class StorageConfig(BaseModel):
+    dir: Path = Path("events")
+    snapshots: bool = True
+
+
 class CameraConfig(BaseModel):
     name: str
     source: str
@@ -66,6 +71,7 @@ class CameraConfig(BaseModel):
 class Settings(BaseModel):
     model: ModelConfig = ModelConfig()
     telegram: TelegramConfig = TelegramConfig()
+    storage: StorageConfig = StorageConfig()
     cameras: list[CameraConfig] = []
 
     @model_validator(mode="after")
