@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable, Iterator
+from functools import partial
 
 import cv2
 import numpy as np
@@ -19,13 +20,15 @@ def open_capture(source: str) -> cv2.VideoCapture:
 class VideoStream:
     """Yields every `every`-th frame from a file, webcam or network stream.
 
-    Broken live streams are reopened after `reconnect_delay` seconds.
+    Live sources are read in a background thread that keeps only the newest frame,
+    so slow inference drops frames instead of accumulating latency. Broken live
+    streams are reopened after `reconnect_delay` seconds.
     """
 
     def __init__(
         self,
         source: str,
-        live: bool = False,
+        live: bool,
         every: int = 1,
         reconnect_delay: float = 5.0,
         capture_factory: Callable[[str], cv2.VideoCapture] = open_capture,
@@ -38,7 +41,11 @@ class VideoStream:
 
         self.connected = False
         self.reconnects = 0
+        self.error: str | None = None
         self.fps: float | None = None
+
+        self._cond = threading.Condition()
+        self._latest: tuple[int, np.ndarray] | None = None
 
     def frames(self, stop: threading.Event) -> Iterator[tuple[int, np.ndarray]]:
         if self.live:
@@ -67,26 +74,61 @@ class VideoStream:
             self.connected = False
 
     def _live_frames(self, stop: threading.Event) -> Iterator[tuple[int, np.ndarray]]:
-        # TODO: inference is slower than the camera, frames pile up in the decoder
-        idx = -1
+        # the reader gets its own event so closing this generator never touches the caller's one
+        halt = threading.Event()
+        self._latest = None
+        reader = threading.Thread(target=self._reader, args=(halt,), daemon=True)
+        reader.start()
+        last_idx = -1
+        try:
+            while not stop.is_set():
+                with self._cond:
+                    self._cond.wait_for(partial(self._has_new, stop, last_idx), timeout=1.0)
+                    item = self._latest
+                if item is None or item[0] == last_idx:
+                    continue
+                last_idx = item[0]
+                yield item
+        finally:
+            halt.set()
+            with self._cond:
+                self._cond.notify_all()
+            reader.join(timeout=5)
+
+    def _has_new(self, stop: threading.Event, last_idx: int) -> bool:
+        return stop.is_set() or (self._latest is not None and self._latest[0] != last_idx)
+
+    def _reader(self, stop: threading.Event) -> None:
+        self._idx = -1
         while not stop.is_set():
-            cap = self._open(self.source)
-            try:
-                if cap.isOpened():
-                    log.info("%s: connected", self.source)
-                    self.connected = True
-                    self.fps = cap.get(cv2.CAP_PROP_FPS) or None
-                    while not stop.is_set():
-                        ok, frame = cap.read()
-                        if not ok:
-                            break
-                        idx += 1
-                        if idx % self.every == 0:
-                            yield idx, frame
-            finally:
-                cap.release()
-                self.connected = False
+            self._read_until_lost(stop)
+            self.connected = False
             if not stop.is_set():
-                log.warning("%s: stream lost, reconnect in %gs", self.source, self.reconnect_delay)
+                log.warning("%s: %s, reconnect in %gs", self.source, self.error, self.reconnect_delay)
                 self.reconnects += 1
                 stop.wait(self.reconnect_delay)
+
+    def _read_until_lost(self, stop: threading.Event) -> None:
+        cap = self._open(self.source)
+        try:
+            if not cap.isOpened():
+                self.error = "cannot open stream"
+                return
+            log.info("%s: connected", self.source)
+            self.connected, self.error = True, None
+            self.fps = cap.get(cv2.CAP_PROP_FPS) or None
+            while not stop.is_set():
+                ok, frame = cap.read()
+                if not ok:
+                    self.error = "no frames, stream lost"
+                    return
+                with self._cond:
+                    # a reader that outlived its join() timeout must not feed the next one
+                    if stop.is_set():
+                        return
+                    self._idx += 1
+                    if self._idx % self.every == 0:
+                        self._latest = (self._idx, frame)
+                        self._cond.notify_all()
+        finally:
+            cap.release()

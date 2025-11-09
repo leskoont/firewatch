@@ -10,16 +10,17 @@ from firewatch.stream import VideoStream
 class FakeCapture:
     """Minimal cv2.VideoCapture stand-in: frame i is filled with value i."""
 
-    def __init__(self, n_frames: int, opened: bool = True):
+    def __init__(self, n_frames: int, opened: bool = True, fail_after: int | None = None):
         self.n = n_frames
         self.opened = opened
+        self.fail_after = fail_after
         self.pos = 0
 
     def isOpened(self):
         return self.opened
 
     def _next(self):
-        if self.pos >= self.n:
+        if self.pos >= self.n or (self.fail_after is not None and self.pos >= self.fail_after):
             return False, None
         frame = np.full((4, 4, 3), self.pos % 256, np.uint8)
         self.pos += 1
@@ -39,7 +40,7 @@ class FakeCapture:
 
 
 def test_file_frames_are_skipped():
-    vs = VideoStream("a.mp4", every=3, capture_factory=lambda s: FakeCapture(10))
+    vs = VideoStream("a.mp4", live=False, every=3, capture_factory=lambda s: FakeCapture(10))
     got = list(vs.frames(threading.Event()))
     assert [i for i, _ in got] == [0, 3, 6, 9]
     assert [int(f[0, 0, 0]) for _, f in got] == [0, 3, 6, 9]
@@ -47,6 +48,34 @@ def test_file_frames_are_skipped():
 
 
 def test_cannot_open():
-    vs = VideoStream("a.mp4", capture_factory=lambda s: FakeCapture(0, opened=False))
+    vs = VideoStream("a.mp4", live=False, capture_factory=lambda s: FakeCapture(0, opened=False))
     with pytest.raises(RuntimeError, match="cannot open"):
         list(vs.frames(threading.Event()))
+
+
+def test_live_reconnects_after_failures():
+    # first open fails, second stream dies after 3 frames, third one works
+    caps = iter([FakeCapture(0, opened=False), FakeCapture(100, fail_after=3)])
+    vs = VideoStream(
+        "rtsp://cam",
+        live=True,
+        reconnect_delay=0.01,
+        capture_factory=lambda s: next(caps, None) or FakeCapture(10**9),
+    )
+    stop = threading.Event()
+    frames = 0
+    for _ in vs.frames(stop):
+        frames += 1
+        if vs.reconnects >= 2 and frames >= 5:
+            stop.set()
+    assert vs.reconnects == 2
+    assert frames >= 5
+
+
+def test_live_generator_close_does_not_set_caller_event():
+    vs = VideoStream("0", live=True, capture_factory=lambda s: FakeCapture(10_000))
+    stop = threading.Event()
+    gen = vs.frames(stop)
+    next(gen)
+    gen.close()
+    assert not stop.is_set()
