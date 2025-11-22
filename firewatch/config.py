@@ -1,10 +1,38 @@
 from __future__ import annotations
 
+import logging
+import os
+import re
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+log = logging.getLogger(__name__)
+
+_ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+
+
+def _env(m: re.Match) -> str:
+    name, default = m.groups()
+    value = os.environ.get(name, "")
+    if not value and default is None:
+        log.warning("${%s} is not set, using an empty string", name)
+    # like in the shell, ${VAR:-x} gives x for an empty VAR too
+    return value or default or ""
+
+
+def expand_env(value: Any) -> Any:
+    """Substitute ${VAR} and ${VAR:-default} in all strings of a parsed YAML tree."""
+    if isinstance(value, str):
+        return _ENV_RE.sub(_env, value)
+    if isinstance(value, dict):
+        return {k: expand_env(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [expand_env(v) for v in value]
+    return value
+
 
 Score = Annotated[float, Field(ge=0, le=1)]
 
@@ -86,4 +114,4 @@ class Settings(BaseModel):
 def load_settings(path: str | Path) -> Settings:
     with open(path, encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
-    return Settings.model_validate(raw)
+    return Settings.model_validate(expand_env(raw))

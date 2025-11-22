@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from firewatch.config import CameraConfig, load_settings
+from firewatch.config import CameraConfig, expand_env, load_settings
 
 EXAMPLE = Path(__file__).parent.parent / "configs" / "cameras.example.yaml"
 
@@ -15,13 +15,48 @@ def write(tmp_path, text):
     return p
 
 
-def test_telegram_enabled_without_token(tmp_path):
+def test_expand_env(monkeypatch):
+    monkeypatch.setenv("FW_TOKEN", "abc")
+    monkeypatch.delenv("FW_MISSING", raising=False)
+    data = {"a": "${FW_TOKEN}", "b": ["x${FW_MISSING}y", "${FW_MISSING:-dflt}"], "c": 5}
+    assert expand_env(data) == {"a": "abc", "b": ["xy", "dflt"], "c": 5}
+
+
+def test_empty_env_takes_default(monkeypatch, caplog):
+    monkeypatch.setenv("FW_EMPTY", "")
+    monkeypatch.delenv("FW_MISSING", raising=False)
+    assert expand_env("${FW_EMPTY:-x}") == "x"
+    assert expand_env("${FW_MISSING}") == ""
+    assert "FW_MISSING" in caplog.text
+
+
+def test_secrets_from_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("TG_TOKEN", "123:abc")
+    monkeypatch.setenv("TG_CHAT", "-100500")
+    cfg = load_settings(
+        write(
+            tmp_path,
+            """
+        telegram:
+          enabled: true
+          token: ${TG_TOKEN}
+          chat_id: ${TG_CHAT}
+    """,
+        )
+    )
+    assert cfg.telegram.enabled
+    assert cfg.telegram.token == "123:abc"
+    assert cfg.telegram.chat_id == "-100500"
+
+
+def test_telegram_enabled_without_token(tmp_path, monkeypatch):
+    monkeypatch.delenv("NOPE", raising=False)
     path = write(
         tmp_path,
         """
         telegram:
           enabled: true
-          token: ""
+          token: ${NOPE}
           chat_id: "1"
     """,
     )
@@ -71,7 +106,8 @@ def test_numeric_source(tmp_path):
     assert cfg.cameras[0].source == "0"
 
 
-def test_example_config_parses():
+def test_example_config_parses(monkeypatch):
+    monkeypatch.delenv("TELEGRAM_ENABLED", raising=False)
     cfg = load_settings(EXAMPLE)
     assert not cfg.telegram.enabled
     assert [c.name for c in cfg.cameras] == ["warehouse", "demo-video", "webcam"]

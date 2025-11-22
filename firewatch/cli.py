@@ -9,6 +9,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import yaml
+from dotenv import load_dotenv
 
 from firewatch.config import Settings, load_settings
 from firewatch.detector import OnnxDetector
@@ -121,6 +122,7 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
     setup_logging(args.verbose)
+    load_dotenv(".env")
     args.func(args)
 
 

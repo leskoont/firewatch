@@ -1,4 +1,5 @@
-# Copy to configs/cameras.yaml and edit.
+# Copy to configs/cameras.yaml and edit. ${VAR} and ${VAR:-default} are taken
+# from the environment or from .env in the working directory.
 
 model:
   path: models/firewatch-yolo11s.onnx
@@ -7,9 +8,9 @@ model:
   iou: 0.45
 
 telegram:
-  enabled: false
-  token: ""
-  chat_id: ""
+  enabled: ${TELEGRAM_ENABLED:-false}
+  token: ${TELEGRAM_BOT_TOKEN:-}
+  chat_id: ${TELEGRAM_CHAT_ID:-}
 
 storage:
   dir: events
@@ -17,7 +18,7 @@ storage:
 
 cameras:
   - name: warehouse
-    source: rtsp://admin:password@192.168.1.64:554/Streaming/Channels/102
+    source: rtsp://${CAM1_USER}:${CAM1_PASSWORD}@192.168.1.64:554/Streaming/Channels/102
     process_every: 3         # run the model on every 3rd frame
     window: 10               # look at the last 10 processed frames...
     min_hits: 6              # ...and alert if at least 6 of them had a detection
