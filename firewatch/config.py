@@ -111,7 +111,19 @@ class Settings(BaseModel):
         return self
 
 
+def _merge_camera(defaults: dict, cam: dict) -> dict:
+    merged = {**defaults, **cam}
+    if isinstance(defaults.get("thresholds"), dict) and isinstance(cam.get("thresholds"), dict):
+        merged["thresholds"] = {**defaults["thresholds"], **cam["thresholds"]}
+    if isinstance(merged.get("thresholds"), dict):
+        merged["thresholds"] = {k: v for k, v in merged["thresholds"].items() if v is not None}
+    return merged
+
+
 def load_settings(path: str | Path) -> Settings:
     with open(path, encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
+
+    defaults = raw.pop("camera_defaults", None) or {}
+    raw["cameras"] = [_merge_camera(defaults, cam) for cam in raw.get("cameras") or []]
     return Settings.model_validate(expand_env(raw))

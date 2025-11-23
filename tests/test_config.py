@@ -30,6 +30,30 @@ def test_empty_env_takes_default(monkeypatch, caplog):
     assert "FW_MISSING" in caplog.text
 
 
+def test_defaults_are_merged_and_overridden(tmp_path):
+    cfg = load_settings(
+        write(
+            tmp_path,
+            """
+        camera_defaults:
+          process_every: 5
+          cooldown_s: 120
+        cameras:
+          - name: a
+            source: rtsp://cam/1
+          - name: b
+            source: 0
+            process_every: 1
+    """,
+        )
+    )
+    a, b = cfg.cameras
+    assert (a.process_every, a.cooldown_s) == (5, 120)
+    assert (b.process_every, b.cooldown_s) == (1, 120)
+    assert b.source == "0" and b.is_live
+    assert a.thresholds == {"fire": 0.4, "smoke": 0.5}
+
+
 def test_secrets_from_env(tmp_path, monkeypatch):
     monkeypatch.setenv("TG_TOKEN", "123:abc")
     monkeypatch.setenv("TG_CHAT", "-100500")
@@ -112,3 +136,21 @@ def test_example_config_parses(monkeypatch):
     assert not cfg.telegram.enabled
     assert [c.name for c in cfg.cameras] == ["warehouse", "demo-video", "webcam"]
     assert cfg.cameras[1].process_every == 2
+
+
+def test_thresholds_are_merged_per_class(tmp_path):
+    cfg = load_settings(
+        write(
+            tmp_path,
+            """
+        camera_defaults:
+          thresholds: {fire: 0.4, smoke: 0.5}
+        cameras:
+          - {name: a, source: a.mp4, thresholds: {smoke: 0.7}}
+          - {name: b, source: b.mp4, thresholds: {smoke: null}}
+    """,
+        )
+    )
+    a, b = cfg.cameras
+    assert a.thresholds == {"fire": 0.4, "smoke": 0.7}
+    assert b.thresholds == {"fire": 0.4}
