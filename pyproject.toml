@@ -21,6 +21,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+train = [
+    "ultralytics>=8.3.0",
+    "pyarrow>=14",
+    "tqdm",
+]
 dev = [
     "pytest>=7.4",
     "ruff>=0.4",
