@@ -1,0 +1,22 @@
+# Passed as-is to ultralytics YOLO.train(); any key can be overridden from the
+# command line: python scripts/train.py epochs=10 batch=8
+model: yolo11s.pt
+data: data/dfire/dfire.yaml
+
+epochs: 50
+patience: 20
+imgsz: 640
+batch: 16
+workers: 8
+cache: false
+
+optimizer: SGD
+lr0: 0.01
+close_mosaic: 10
+seed: 0
+deterministic: false
+
+project: runs
+name: yolo11s-dfire
+exist_ok: false
+plots: true
