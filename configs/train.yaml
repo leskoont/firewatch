@@ -6,8 +6,8 @@ data: data/dfire/dfire.yaml
 epochs: 50
 patience: 20
 imgsz: 640
-batch: 16
-workers: 8
+batch: 12          # 16 runs out of memory on 6 GB
+workers: 6
 cache: false
 
 optimizer: SGD

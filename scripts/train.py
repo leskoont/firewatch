@@ -2,6 +2,7 @@
 
 python scripts/train.py                          # configs/train.yaml
 python scripts/train.py -c my.yaml epochs=5 batch=8
+python scripts/train.py --resume runs/yolo11s-dfire/weights/last.pt batch=8
 """
 
 from __future__ import annotations
@@ -26,8 +27,17 @@ def parse_overrides(items: list[str]) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("-c", "--config", type=Path, default=Path("configs/train.yaml"))
+    ap.add_argument("--resume", type=Path, help="continue an interrupted run from its last.pt")
     ap.add_argument("overrides", nargs="*", help="key=value pairs on top of the config")
     args = ap.parse_args()
+
+    if args.resume:
+        # ultralytics restores the arguments from the checkpoint and only lets a few
+        # of them (batch, workers, device...) be changed
+        model = YOLO(str(args.resume))
+        model.train(resume=True, **parse_overrides(args.overrides))
+        print(f"best weights: {Path(model.trainer.best)}")
+        return
 
     cfg = yaml.safe_load(args.config.read_text(encoding="utf-8"))
     cfg.update(parse_overrides(args.overrides))
