@@ -49,6 +49,7 @@ class CameraWorker(threading.Thread):
             live=cfg.is_live,
             every=cfg.process_every,
             reconnect_delay=cfg.reconnect_delay_s,
+            loop=cfg.loop,
         )
         self.frames_processed = 0
         self._last_hit: dict[str, tuple[int, np.ndarray, list[Detection]]] = {}

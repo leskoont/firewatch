@@ -79,6 +79,7 @@ class CameraConfig(BaseModel):
     # per-class confidence; classes not listed here never raise an alert
     thresholds: dict[str, Score] = Field(default_factory=lambda: {"fire": 0.4, "smoke": 0.5})
     reconnect_delay_s: float = Field(5.0, ge=0)
+    loop: bool = False  # restart video files at EOF, handy for demos
 
     @field_validator("source", mode="before")
     @classmethod

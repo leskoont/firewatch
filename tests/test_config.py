@@ -135,7 +135,7 @@ def test_example_config_parses(monkeypatch):
     cfg = load_settings(EXAMPLE)
     assert not cfg.telegram.enabled
     assert [c.name for c in cfg.cameras] == ["warehouse", "demo-video", "webcam"]
-    assert cfg.cameras[1].process_every == 2
+    assert cfg.cameras[1].process_every == 2 and cfg.cameras[1].loop
 
 
 def test_thresholds_are_merged_per_class(tmp_path):

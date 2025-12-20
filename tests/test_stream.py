@@ -35,6 +35,10 @@ class FakeCapture:
     def get(self, prop):
         return 25.0 if prop == cv2.CAP_PROP_FPS else 0.0
 
+    def set(self, prop, value):
+        if prop == cv2.CAP_PROP_POS_FRAMES:
+            self.pos = int(value)
+
     def release(self):
         pass
 
@@ -45,6 +49,17 @@ def test_file_frames_are_skipped():
     assert [i for i, _ in got] == [0, 3, 6, 9]
     assert [int(f[0, 0, 0]) for _, f in got] == [0, 3, 6, 9]
     assert vs.fps == 25.0
+
+
+def test_file_loop_rewinds():
+    stop = threading.Event()
+    vs = VideoStream("a.mp4", live=False, loop=True, capture_factory=lambda s: FakeCapture(3))
+    values = []
+    for _, frame in vs.frames(stop):
+        values.append(int(frame[0, 0, 0]))
+        if len(values) == 7:
+            stop.set()
+    assert values == [0, 1, 2, 0, 1, 2, 0]
 
 
 def test_cannot_open():
@@ -70,6 +85,12 @@ def test_live_reconnects_after_failures():
             stop.set()
     assert vs.reconnects == 2
     assert frames >= 5
+
+
+def test_file_loop_gives_up_on_empty_video():
+    vs = VideoStream("a.mp4", live=False, loop=True, capture_factory=lambda s: FakeCapture(0))
+    with pytest.raises(RuntimeError, match="no frames"):
+        list(vs.frames(threading.Event()))
 
 
 def test_live_generator_close_does_not_set_caller_event():

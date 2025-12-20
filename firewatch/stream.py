@@ -31,12 +31,14 @@ class VideoStream:
         live: bool,
         every: int = 1,
         reconnect_delay: float = 5.0,
+        loop: bool = False,
         capture_factory: Callable[[str], cv2.VideoCapture] = open_capture,
     ):
         self.source = source
         self.live = live
         self.every = max(1, every)
         self.reconnect_delay = reconnect_delay
+        self.loop = loop
         self._open = capture_factory
 
         self.connected = False
@@ -59,14 +61,23 @@ class VideoStream:
             raise RuntimeError(f"cannot open {self.source}")
         self.connected = True
         self.fps = cap.get(cv2.CAP_PROP_FPS) or None
-        idx = -1
+        idx, rewinds = -1, 0
         try:
             while not stop.is_set():
                 idx += 1
                 skip = idx % self.every
                 ok, frame = (cap.grab(), None) if skip else cap.read()
                 if not ok:
-                    break
+                    if not self.loop:
+                        break
+                    if rewinds >= 3:
+                        raise RuntimeError(f"{self.source}: no frames after {rewinds} rewinds")
+                    if rewinds:
+                        stop.wait(1.0)
+                    rewinds += 1
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    continue
+                rewinds = 0
                 if not skip:
                     yield idx, frame
         finally:
