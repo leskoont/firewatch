@@ -93,6 +93,25 @@ def test_file_loop_gives_up_on_empty_video():
         list(vs.frames(threading.Event()))
 
 
+class CrashingCapture(FakeCapture):
+    def read(self):
+        raise RuntimeError("decoder died")
+
+
+def test_live_reader_survives_exceptions():
+    caps = iter([CrashingCapture(10)])
+    vs = VideoStream(
+        "rtsp://cam",
+        live=True,
+        reconnect_delay=0.01,
+        capture_factory=lambda s: next(caps, None) or FakeCapture(10**9),
+    )
+    stop = threading.Event()
+    for _ in vs.frames(stop):
+        stop.set()
+    assert vs.reconnects == 1
+
+
 def test_live_generator_close_does_not_set_caller_event():
     vs = VideoStream("0", live=True, capture_factory=lambda s: FakeCapture(10_000))
     stop = threading.Event()

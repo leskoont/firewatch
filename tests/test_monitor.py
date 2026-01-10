@@ -51,7 +51,8 @@ def test_alert_after_persistent_detection(tmp_path, frame):
     assert a.camera == "cam1" and a.labels == ["fire"]
     assert "cam1" in a.caption and "0.70" in a.caption
     assert len(list(tmp_path.glob("cam1_*.jpg"))) == 1
-    assert w.frames_processed == 5
+    assert w.status.alerts == 1
+    assert w.status.frames_processed == 5
     assert cv2.imdecode(np.frombuffer(a.jpeg, np.uint8), cv2.IMREAD_COLOR).any()  # boxes drawn
 
 
@@ -95,6 +96,8 @@ def test_worker_runs_over_video_file(tmp_path):
     w = CameraWorker(cfg, detector, StorageConfig(dir=tmp_path / "ev"), alerts.append)
     w.run()
 
+    assert w.status.state == "stopped"
+    assert w.status.frames_processed == 6
     assert len(detector.calls) == 6
     assert len(alerts) == 1
     assert len(list((tmp_path / "ev").glob("file_*.jpg"))) == 1
@@ -119,3 +122,45 @@ def test_monitor_dispatches_to_notifier(tmp_path, frame):
     assert [w.cfg.name for w in m.workers] == ["a"]
     m.workers[0]._process(frame, [det("fire", 0.9)])
     assert len(sent) == 1 and sent[0].startswith("[a] fire")
+
+
+def test_worker_restarts_after_crash(tmp_path):
+    path = tmp_path / "clip.avi"
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"MJPG"), 10, (64, 48))
+    for _ in range(4):
+        writer.write(np.full((48, 64, 3), 80, np.uint8))
+    writer.release()
+
+    class Flaky:
+        calls = 0
+
+        def __call__(self, img, conf=None):
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("CUDA error")
+            return []
+
+    cfg = CameraConfig(name="file", source=str(path), process_every=1)
+    w = CameraWorker(cfg, Flaky(), StorageConfig(dir=tmp_path), lambda a: None)
+    w.run()
+    # one frame before the crash, then the whole file again
+    assert w.status.frames_processed == 5
+    assert w.status.state == "stopped"
+
+
+def test_status_follows_stream_between_frames(tmp_path, frame):
+    settings = Settings(
+        storage=StorageConfig(dir=tmp_path),
+        cameras=[CameraConfig(name="gate", source="rtsp://10.0.0.5/live")],
+    )
+    m = Monitor(settings, detector=None)
+    w = m.workers[0]
+    w.stream.connected = True
+    w._process(frame, [])
+    assert m.statuses()[0].state == "running"
+
+    # camera went down, no new frames reach _process
+    w.stream.connected = False
+    w.stream.reconnects = 2
+    st = m.statuses()[0]
+    assert (st.state, st.connected, st.reconnects) == ("reconnecting", False, 2)

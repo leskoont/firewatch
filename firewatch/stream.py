@@ -112,7 +112,13 @@ class VideoStream:
     def _reader(self, stop: threading.Event) -> None:
         self._idx = -1
         while not stop.is_set():
-            self._read_until_lost(stop)
+            try:
+                self._read_until_lost(stop)
+            except Exception as e:
+                error = f"{type(e).__name__}: {e}"
+                if error != self.error:
+                    log.exception("%s: reader failed", self.source)
+                self.error = error
             self.connected = False
             if not stop.is_set():
                 log.warning("%s: %s, reconnect in %gs", self.source, self.error, self.reconnect_delay)

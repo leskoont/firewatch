@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from datetime import datetime
 
 import numpy as np
@@ -35,6 +37,22 @@ class Alert:
         return f"[{self.camera}] {found}\n{self.time:%Y-%m-%d %H:%M:%S}"
 
 
+@dataclass
+class CameraStatus:
+    name: str
+    source: str
+    state: str = "starting"
+    connected: bool = False
+    reconnects: int = 0
+    frames_processed: int = 0
+    processing_fps: float = 0.0
+    last_frame_at: str | None = None
+    last_alert_at: str | None = None
+    alerts: int = 0
+    last_detections: list[dict] = field(default_factory=list)
+    error: str | None = None
+
+
 class CameraWorker(threading.Thread):
     def __init__(self, cfg: CameraConfig, detector, storage: StorageConfig, on_alert):
         super().__init__(name=f"camera-{cfg.name}", daemon=True)
@@ -43,6 +61,7 @@ class CameraWorker(threading.Thread):
         self.storage = storage
         self.on_alert = on_alert
         self.stop_event = threading.Event()
+        self.status = CameraStatus(name=cfg.name, source=cfg.source)
         self.gate = AlertGate(cfg.thresholds, cfg.window, cfg.min_hits, cfg.cooldown_s)
         self.stream = VideoStream(
             cfg.source,
@@ -51,7 +70,6 @@ class CameraWorker(threading.Thread):
             reconnect_delay=cfg.reconnect_delay_s,
             loop=cfg.loop,
         )
-        self.frames_processed = 0
         self._last_hit: dict[str, tuple[int, np.ndarray, list[Detection]]] = {}
 
     def filter(self, dets: list[Detection]) -> list[Detection]:
@@ -60,18 +78,49 @@ class CameraWorker(threading.Thread):
 
     def run(self) -> None:
         log.info("camera %s: starting (%s)", self.cfg.name, self.cfg.source)
-        try:
-            for _, frame in self.stream.frames(self.stop_event):
-                self._process(frame, self.filter(self.detector(frame)))
-        except Exception:
-            log.exception("camera %s failed", self.cfg.name)
+        self.status.state = "connecting"
+        delay = 1.0
+        while not self.stop_event.is_set():
+            processed = self.status.frames_processed
+            try:
+                self._watch()
+                self.status.state = "stopped"
+                break
+            except Exception as e:
+                if self.status.frames_processed > processed:
+                    delay = 1.0
+                log.exception("camera %s crashed, restarting in %.0fs", self.cfg.name, delay)
+                self.status.state, self.status.error = "error", f"{type(e).__name__}: {e}"
+                self.stop_event.wait(delay)
+                delay = min(delay * 2, 60.0)
+        self.status.connected = False
         log.info("camera %s: stopped", self.cfg.name)
 
+    def _watch(self) -> None:
+        tick, frames = None, 0
+        # if detection throws, the live reader must stop now rather than after the backoff
+        with contextlib.closing(self.stream.frames(self.stop_event)) as stream:
+            for _, frame in stream:
+                self._process(frame, self.filter(self.detector(frame)))
+
+                frames += 1
+                now = time.monotonic()
+                if tick is None:
+                    tick, frames = now, 0
+                elif now - tick >= 2.0:
+                    self.status.processing_fps = round(frames / (now - tick), 2)
+                    tick, frames = now, 0
+
     def _process(self, frame: np.ndarray, dets: list[Detection]) -> None:
-        self.frames_processed += 1
+        st = self.status
+        st.state, st.error = "running", None
+        st.frames_processed += 1
+        st.last_frame_at = datetime.now().isoformat(timespec="seconds")
+        st.last_detections = [d.to_dict() for d in dets]
+
         due = self.gate.update(d.label for d in dets)
         for label in {d.label for d in dets}:
-            self._last_hit[label] = (self.frames_processed, frame, dets)
+            self._last_hit[label] = (st.frames_processed, frame, dets)
         if not due:
             return
 
@@ -86,6 +135,8 @@ class CameraWorker(threading.Thread):
         alert = Alert(self.cfg.name, due, scored, encode_jpeg(image), now)
         stem = event_stem(self.cfg.name, now)
         jpg = self.storage.snapshots and save_snapshot(self.storage.dir, stem, image)
+        st.alerts += 1
+        st.last_alert_at = now.isoformat(timespec="seconds")
         log.warning("ALERT %s (%s)", alert.caption.replace("\n", ", "), jpg.name if jpg else "no snapshot")
         self.on_alert(alert)
 
@@ -127,3 +178,15 @@ class Monitor:
         for w in self.workers:
             while w.is_alive():
                 w.join(0.5)
+
+    def statuses(self) -> list[CameraStatus]:
+        # the stream changes these between frames, e.g. while an RTSP camera is down
+        for w in self.workers:
+            st = w.status
+            st.connected = w.stream.connected
+            st.reconnects = w.stream.reconnects
+            if st.state == "running" and not st.connected:
+                st.state = "reconnecting"
+            if st.state in ("connecting", "reconnecting"):
+                st.error = w.stream.error
+        return [w.status for w in self.workers]
