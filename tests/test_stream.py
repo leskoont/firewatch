@@ -75,6 +75,7 @@ def test_live_reconnects_after_failures():
         "rtsp://cam",
         live=True,
         reconnect_delay=0.01,
+        read_timeout=0.05,
         capture_factory=lambda s: next(caps, None) or FakeCapture(10**9),
     )
     stop = threading.Event()

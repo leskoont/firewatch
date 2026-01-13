@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
+import time
 from collections.abc import Callable, Iterator
 from functools import partial
 
@@ -10,11 +12,16 @@ import numpy as np
 
 log = logging.getLogger(__name__)
 
+# udp gives smeared gray frames on wifi
+os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 
-def open_capture(source: str) -> cv2.VideoCapture:
+
+def open_capture(source: str, timeout_ms: int = 10_000) -> cv2.VideoCapture:
     if source.isdigit():
         return cv2.VideoCapture(int(source))
-    return cv2.VideoCapture(source)
+    # without these a dead RTSP server blocks read() for ~30 s
+    params = [cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, timeout_ms, cv2.CAP_PROP_READ_TIMEOUT_MSEC, timeout_ms]
+    return cv2.VideoCapture(source, cv2.CAP_FFMPEG, params)
 
 
 class VideoStream:
@@ -33,12 +40,14 @@ class VideoStream:
         reconnect_delay: float = 5.0,
         loop: bool = False,
         capture_factory: Callable[[str], cv2.VideoCapture] = open_capture,
+        read_timeout: float = 10.0,
     ):
         self.source = source
         self.live = live
         self.every = max(1, every)
         self.reconnect_delay = reconnect_delay
         self.loop = loop
+        self.read_timeout = read_timeout
         self._open = capture_factory
 
         self.connected = False
@@ -129,16 +138,23 @@ class VideoStream:
         cap = self._open(self.source)
         try:
             if not cap.isOpened():
-                self.error = "cannot open stream"
+                # FFmpeg prints the real reason (401, 404...) only to stderr
+                self.error = "cannot open stream, check the address, login and password"
                 return
             log.info("%s: connected", self.source)
             self.connected, self.error = True, None
             self.fps = cap.get(cv2.CAP_PROP_FPS) or None
+            last_ok = time.monotonic()
             while not stop.is_set():
                 ok, frame = cap.read()
                 if not ok:
-                    self.error = "no frames, stream lost"
-                    return
+                    # some backends return False for a moment instead of blocking
+                    if time.monotonic() - last_ok > self.read_timeout:
+                        self.error = "no frames, stream lost"
+                        return
+                    stop.wait(0.05)
+                    continue
+                last_ok = time.monotonic()
                 with self._cond:
                     # a reader that outlived its join() timeout must not feed the next one
                     if stop.is_set():
