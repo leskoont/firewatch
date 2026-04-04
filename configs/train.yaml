@@ -3,8 +3,8 @@
 model: yolo11s.pt
 data: data/dfire/dfire.yaml
 
-epochs: 50
-patience: 20
+epochs: 30
+patience: 15
 imgsz: 640
 batch: 12          # 16 runs out of memory on 6 GB
 workers: 6
@@ -12,7 +12,8 @@ cache: false
 
 optimizer: SGD
 lr0: 0.01
-close_mosaic: 10
+cos_lr: true
+close_mosaic: 5
 seed: 0
 deterministic: false
 
