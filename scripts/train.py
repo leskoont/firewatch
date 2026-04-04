@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import torch
 import yaml
 from ultralytics import YOLO
 
@@ -28,8 +29,18 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("-c", "--config", type=Path, default=Path("configs/train.yaml"))
     ap.add_argument("--resume", type=Path, help="continue an interrupted run from its last.pt")
+    ap.add_argument(
+        "--keep-cuda-cache",
+        action="store_true",
+        help="do not release cached VRAM between epochs (works around OOM on Windows/WDDM)",
+    )
     ap.add_argument("overrides", nargs="*", help="key=value pairs on top of the config")
     args = ap.parse_args()
+
+    if args.keep_cuda_cache:
+        # Under WDDM, with other programs holding VRAM, re-allocating after ultralytics
+        # empties the cache at the epoch boundary can fail even though memory is free.
+        torch.cuda.empty_cache = lambda: None
 
     if args.resume:
         # ultralytics restores the arguments from the checkpoint and only lets a few
