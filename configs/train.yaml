@@ -6,7 +6,7 @@ data: data/dfire/dfire.yaml
 epochs: 30
 patience: 15
 imgsz: 640
-batch: 12          # 16 runs out of memory on 6 GB
+batch: 12          # ~3 GB with AMP, still went OOM between epochs on 6 GB under Windows, see README
 workers: 6
 cache: false
 
