@@ -4,7 +4,22 @@
 обученная на открытом датасете D-Fire, на инференсе работает через onnxruntime без PyTorch.
 При устойчивом срабатывании отправляет в Telegram кадр с разметкой и сохраняет снимок.
 
-Пока в работе: модель обучается, результатов и весов еще нет.
+## Результаты
+
+YOLO11s (предобучение COCO), 640x640, 30 эпох на RTX 2060 6 GB, лучшая эпоха - последняя
+(mAP50 0.773 на val, [docs/results.csv](docs/results.csv)). Официальный тест D-Fire, `best.pt`
+через `ultralytics val` ([docs/test_metrics_pt.json](docs/test_metrics_pt.json)):
+
+| Класс | Изображений | Объектов | Precision | Recall | mAP50 | mAP50-95 |
+|-------|-------------|----------|-----------|--------|-------|----------|
+| all   | 4306 | 5189 | 0.759 | 0.687 | 0.760 | 0.436 |
+| fire  | 1115 | 2878 | 0.718 | 0.616 | 0.703 | 0.367 |
+| smoke | 2081 | 2311 | 0.800 | 0.758 | 0.817 | 0.506 |
+
+Огонь находится хуже дыма в основном из-за размера: на кадрах 640 px очаг часто занимает
+несколько десятков пикселей, к тому же несколько очагов размечены то одним боксом, то разными.
+
+![](docs/results.png)
 
 ## Установка
 
@@ -31,9 +46,13 @@ OneDrive без браузера не скачать), уменьшает изо
 python scripts/prepare_dfire.py
 python scripts/train.py                              # configs/train.yaml
 python scripts/train.py epochs=10 batch=8            # переопределить любой параметр
-python scripts/train.py --resume runs/yolo11s-dfire/weights/last.pt
+python scripts/train.py --keep-cuda-cache --resume runs/yolo11s-dfire/weights/last.pt batch=8
 python scripts/evaluate.py runs/yolo11s-dfire/weights/best.pt --split test --out docs/test_metrics_pt.json
 ```
+
+На 6 GB под Windows обучение падало с CUDA OOM на границе эпох при 2-4 GB свободной памяти:
+ultralytics после валидации зовет `torch.cuda.empty_cache()`, а под WDDM память потом не всегда
+выделяется заново. Помогли `--keep-cuda-cache` (отключает этот сброс) и batch 8 вместо 12.
 
 ## Запуск
 
