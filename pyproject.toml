@@ -23,6 +23,8 @@ dependencies = [
 [project.optional-dependencies]
 train = [
     "ultralytics>=8.3.0",
+    "onnx>=1.15",
+    "onnxslim>=0.1.30",
     "pyarrow>=14",
     "tqdm",
 ]

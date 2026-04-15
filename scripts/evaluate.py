@@ -1,4 +1,4 @@
-"""Evaluate weights on a dataset split and save metrics as JSON.
+"""Evaluate weights (.pt or .onnx) on a dataset split and save metrics as JSON.
 
 python scripts/evaluate.py runs/yolo11s-dfire/weights/best.pt --split test
 """
@@ -24,11 +24,13 @@ def main() -> None:
     args = ap.parse_args()
 
     model = YOLO(str(args.weights), task="detect")
+    # ONNX models are exported with a fixed batch of 1
+    batch = 1 if args.weights.suffix == ".onnx" else args.batch
     m = model.val(
         data=args.data,
         split=args.split,
         imgsz=args.imgsz,
-        batch=args.batch,
+        batch=batch,
         device=args.device,
         plots=False,
         project=str(Path("runs/eval").resolve()),
