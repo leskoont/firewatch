@@ -1,0 +1,23 @@
+{
+  "images": 50,
+  "raw_max_abs_diff_box_px": 0.006592,
+  "raw_max_abs_diff_score": 6e-06,
+  "onnx": {
+    "ref_boxes": 64,
+    "our_boxes": 64,
+    "matched": 64,
+    "mean_iou": 0.99889,
+    "min_iou": 0.96363,
+    "max_score_diff": 0.0,
+    "max_coord_diff_px": 0.222
+  },
+  "pt": {
+    "ref_boxes": 62,
+    "our_boxes": 64,
+    "matched": 62,
+    "mean_iou": 0.97082,
+    "min_iou": 0.57294,
+    "max_score_diff": 0.1327,
+    "max_coord_diff_px": 141.625
+  }
+}
