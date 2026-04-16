@@ -21,6 +21,11 @@ YOLO11s (предобучение COCO), 640x640, 30 эпох на RTX 2060 6 GB
 
 ![](docs/results.png)
 
+`scripts/check_onnx.py` сверяет экспорт с оригиналом на 50 тестовых изображениях: сырой выход
+сети расходится не больше чем на 0.0066 px, `OnnxDetector` и ultralytics на том же .onnx
+находят одни и те же 64 бокса. С .pt средний IoU 0.971: для .pt ultralytics дополняет кадр до
+прямоугольника, кратного 32, а не до квадрата ([docs/check_onnx.json](docs/check_onnx.json)).
+
 ## Установка
 
 Нужен Python 3.10+.
@@ -48,11 +53,15 @@ python scripts/train.py                              # configs/train.yaml
 python scripts/train.py epochs=10 batch=8            # переопределить любой параметр
 python scripts/train.py --keep-cuda-cache --resume runs/yolo11s-dfire/weights/last.pt batch=8
 python scripts/evaluate.py runs/yolo11s-dfire/weights/best.pt --split test --out docs/test_metrics_pt.json
+python scripts/export_onnx.py runs/yolo11s-dfire/weights/best.pt   # -> models/firewatch-yolo11s.onnx
+python scripts/check_onnx.py runs/yolo11s-dfire/weights/best.pt models/firewatch-yolo11s.onnx
 ```
 
 На 6 GB под Windows обучение падало с CUDA OOM на границе эпох при 2-4 GB свободной памяти:
 ultralytics после валидации зовет `torch.cuda.empty_cache()`, а под WDDM память потом не всегда
 выделяется заново. Помогли `--keep-cuda-cache` (отключает этот сброс) и batch 8 вместо 12.
+Экспорт статический (1x3x640x640, opset 17), без NMS в графе: постобработка на numpy в
+`firewatch/ops.py`, имена классов и размер входа берутся из метаданных ONNX.
 
 ## Запуск
 
