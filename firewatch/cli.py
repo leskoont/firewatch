@@ -35,7 +35,7 @@ def load_config(path: str) -> Settings:
 def build_detector(settings: Settings) -> OnnxDetector:
     m = settings.model
     require_model(m.path)
-    det = OnnxDetector(m.path, m.providers, conf=m.conf, iou=m.iou)
+    det = OnnxDetector(m.path, m.providers, conf=m.conf, iou=m.iou, intra_op_threads=m.threads)
     log.info("model %s, providers %s, classes %s", m.path.name, det.providers, det.names)
     return det
 

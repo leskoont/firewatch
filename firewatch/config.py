@@ -42,6 +42,7 @@ class ModelConfig(BaseModel):
     providers: str | list[str] = "auto"
     conf: Score = 0.25
     iou: Score = 0.45
+    threads: int | None = Field(None, ge=1)
 
 
 class TelegramConfig(BaseModel):

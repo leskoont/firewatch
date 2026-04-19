@@ -62,8 +62,14 @@ class OnnxDetector:
         conf: float = 0.25,
         iou: float = 0.45,
         names: dict[int, str] | None = None,
+        intra_op_threads: int | None = None,
     ):
-        self.session = ort.InferenceSession(str(model_path), providers=resolve_providers(providers))
+        opts = ort.SessionOptions()
+        if intra_op_threads:
+            opts.intra_op_num_threads = intra_op_threads
+        self.session = ort.InferenceSession(
+            str(model_path), sess_options=opts, providers=resolve_providers(providers)
+        )
         inp = self.session.get_inputs()[0]
         self.input_name = inp.name
         h, w = inp.shape[2], inp.shape[3]

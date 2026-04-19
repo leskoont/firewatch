@@ -6,6 +6,7 @@ model:
   providers: auto          # auto | CPUExecutionProvider | CUDAExecutionProvider
   conf: 0.25
   iou: 0.45
+  threads: null            # onnxruntime intra-op threads, null = library default
 
 telegram:
   enabled: ${TELEGRAM_ENABLED:-false}
