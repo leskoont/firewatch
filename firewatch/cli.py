@@ -67,6 +67,17 @@ def cmd_run(args) -> None:
         notifier.close()
 
 
+def cmd_serve(args) -> None:
+    import uvicorn
+
+    from firewatch.api import create_app
+
+    settings = load_config(args.config)
+    detector = build_detector(settings)
+    app = create_app(detector, None, settings.model.path.name)
+    uvicorn.run(app, host=args.host, port=args.port)
+
+
 def cmd_detect(args) -> None:
     require_model(Path(args.model))
     detector = OnnxDetector(args.model, args.providers, conf=args.conf, iou=args.iou)
@@ -110,6 +121,12 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("run", help="watch cameras from config, send alerts")
     p.add_argument("-c", "--config", default="configs/cameras.yaml")
     p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("serve", help="HTTP API only")
+    p.add_argument("-c", "--config", default="configs/cameras.yaml")
+    p.add_argument("--host", default="0.0.0.0")
+    p.add_argument("--port", type=int, default=8000)
+    p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("detect", help="run the model on images and save annotated copies")
     p.add_argument("inputs", nargs="+")
