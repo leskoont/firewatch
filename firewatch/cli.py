@@ -45,8 +45,13 @@ def cmd_run(args) -> None:
     from firewatch.notify import TelegramNotifier
 
     settings = load_config(args.config)
+    if not settings.cameras:
+        sys.exit("no cameras in config")
+    use_api = settings.api.enabled and not args.no_api
     if not any(c.enabled for c in settings.cameras):
-        sys.exit("no enabled cameras in config")
+        if not use_api:
+            sys.exit("all cameras are disabled and the API is off, nothing to do")
+        log.warning("all cameras are disabled, only the API will run")
     detector = build_detector(settings)
 
     tg = settings.telegram
@@ -56,13 +61,25 @@ def cmd_run(args) -> None:
 
     monitor = Monitor(settings, detector, notifier)
     monitor.start()
-    signal.signal(signal.SIGTERM, lambda *_: monitor.stop())
-    try:
-        monitor.wait()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        monitor.stop()
+
+    if use_api:
+        import uvicorn
+
+        from firewatch.api import create_app
+
+        app = create_app(detector, monitor, settings.model.path.name)
+        try:
+            uvicorn.run(app, host=settings.api.host, port=settings.api.port, log_level="info")
+        finally:
+            monitor.stop()
+    else:
+        signal.signal(signal.SIGTERM, lambda *_: monitor.stop())
+        try:
+            monitor.wait()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            monitor.stop()
     if notifier:
         notifier.close()
 
@@ -75,7 +92,7 @@ def cmd_serve(args) -> None:
     settings = load_config(args.config)
     detector = build_detector(settings)
     app = create_app(detector, None, settings.model.path.name)
-    uvicorn.run(app, host=args.host, port=args.port)
+    uvicorn.run(app, host=args.host or settings.api.host, port=args.port or settings.api.port)
 
 
 def cmd_detect(args) -> None:
@@ -120,12 +137,13 @@ def main(argv: list[str] | None = None) -> None:
 
     p = sub.add_parser("run", help="watch cameras from config, send alerts")
     p.add_argument("-c", "--config", default="configs/cameras.yaml")
+    p.add_argument("--no-api", action="store_true", help="do not start the HTTP API")
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("serve", help="HTTP API only")
     p.add_argument("-c", "--config", default="configs/cameras.yaml")
-    p.add_argument("--host", default="0.0.0.0")
-    p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--host")
+    p.add_argument("--port", type=int)
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("detect", help="run the model on images and save annotated copies")

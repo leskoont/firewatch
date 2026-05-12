@@ -98,10 +98,17 @@ class CameraConfig(BaseModel):
         return self.source.isdigit() or "://" in self.source
 
 
+class ApiConfig(BaseModel):
+    enabled: bool = True
+    host: str = "0.0.0.0"
+    port: int = 8000
+
+
 class Settings(BaseModel):
     model: ModelConfig = ModelConfig()
     telegram: TelegramConfig = TelegramConfig()
     storage: StorageConfig = StorageConfig()
+    api: ApiConfig = ApiConfig()
     cameras: list[CameraConfig] = []
 
     @model_validator(mode="after")

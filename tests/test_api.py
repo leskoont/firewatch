@@ -9,8 +9,14 @@ from firewatch.monitor import CameraStatus
 
 
 class FakeMonitor:
+    def __init__(self):
+        self.stopped = 0
+
     def statuses(self):
         return [CameraStatus(name="gate", source="rtsp://10.0.0.5/1", state="running", alerts=2)]
+
+    def stop(self):
+        self.stopped += 1
 
 
 @pytest.fixture
@@ -31,6 +37,15 @@ def test_health(client):
     assert body["model"] == "dummy.onnx"
     assert body["classes"] == ["smoke", "fire"]
     assert "CPUExecutionProvider" in body["providers"]
+
+
+def test_monitor_is_stopped_on_shutdown(dummy_model):
+    det = OnnxDetector(dummy_model, "CPUExecutionProvider")
+    monitor = FakeMonitor()
+    with TestClient(create_app(det, monitor)) as c:
+        assert c.get("/health").status_code == 200
+        assert monitor.stopped == 0
+    assert monitor.stopped == 1
 
 
 def test_detect(client):

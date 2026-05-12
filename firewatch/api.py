@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import time
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 
 import cv2
@@ -11,7 +13,14 @@ from firewatch import __version__
 
 
 def create_app(detector, monitor=None, model_name: str = "") -> FastAPI:
-    app = FastAPI(title="firewatch", version=__version__)
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        yield
+        # uvicorn re-raises SIGTERM once it is done, so code after uvicorn.run() may never run
+        if monitor is not None:
+            await asyncio.to_thread(monitor.stop)
+
+    app = FastAPI(title="firewatch", version=__version__, lifespan=lifespan)
 
     @app.get("/health")
     def health():

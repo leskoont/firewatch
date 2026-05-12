@@ -17,9 +17,9 @@ def test_detect_output_without_suffix(dummy_model, tmp_path):
     assert sorted(p.name for p in out.iterdir()) == ["b.png", "frame.jpg"]
 
 
-def test_run_without_enabled_cameras(dummy_model, tmp_path):
+def test_run_without_enabled_cameras_and_api(dummy_model, tmp_path):
     cfg = tmp_path / "cfg.yaml"
     model = dummy_model.as_posix()
     cfg.write_text(f"model: {{path: '{model}'}}\ncameras: [{{name: a, source: a.mp4, enabled: false}}]\n")
-    with pytest.raises(SystemExit, match="no enabled cameras"):
-        main(["run", "-c", str(cfg)])
+    with pytest.raises(SystemExit, match="all cameras are disabled"):
+        main(["run", "-c", str(cfg), "--no-api"])
