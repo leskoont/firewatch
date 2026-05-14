@@ -1,8 +1,12 @@
+import struct
+import zlib
+
 import cv2
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+from firewatch import api
 from firewatch.api import create_app
 from firewatch.detector import OnnxDetector
 from firewatch.monitor import CameraStatus
@@ -66,6 +70,38 @@ def test_detect_conf_param(client):
 def test_detect_rejects_garbage(client):
     resp = client.post("/detect", files={"file": ("x.jpg", b"not an image", "image/jpeg")})
     assert resp.status_code == 400
+
+
+@pytest.mark.parametrize("size", [(8000, 6000), (30000, 30000)])
+def test_detect_rejects_huge_resolution(client, size):
+    # a valid PNG header that claims a huge size, never decoded
+    data = bytearray(png(8, 8))
+    data[16:24] = struct.pack(">II", *size)
+    data[29:33] = struct.pack(">I", zlib.crc32(bytes(data[12:29])))
+    resp = client.post("/detect", files={"file": ("x.png", bytes(data), "image/png")})
+    assert resp.status_code == 413
+
+
+def test_upload_size_limit(client, monkeypatch):
+    monkeypatch.setattr(api, "MAX_UPLOAD_BYTES", 1000)
+    resp = client.post("/detect", files={"file": ("x.png", b"0" * 2000, "image/png")})
+    assert resp.status_code == 413
+
+    # chunked, no Content-Length: counted while it arrives
+    def chunked(payload):
+        body = (
+            b'--xx\r\nContent-Disposition: form-data; name="file"; filename="x.png"\r\n'
+            b"Content-Type: image/png\r\n\r\n" + payload + b"\r\n--xx--\r\n"
+        )
+        headers = {"content-type": "multipart/form-data; boundary=xx"}
+        return client.post("/detect", content=iter([body[:300], body[300:]]), headers=headers)
+
+    assert chunked(b"0" * 2000).status_code == 413
+    assert chunked(b"0" * 100).status_code == 400  # small enough, just not an image
+
+
+def test_limit_is_only_on_detect(client):
+    assert client.post("/health").status_code == 405
 
 
 def test_detect_requires_file(client):

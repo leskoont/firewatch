@@ -20,6 +20,7 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn>=0.27",
     "python-multipart>=0.0.9",
+    "pillow>=10",
     "python-dotenv>=1.0",
 ]
 

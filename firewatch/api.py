@@ -1,15 +1,60 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi.routing import APIRoute
+from PIL import Image, UnidentifiedImageError
 
 from firewatch import __version__
+
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+# a few hundred KB of PNG can decode into gigabytes, so the size is checked from the header first
+MAX_PIXELS = 40_000_000
+
+
+def image_size(data: bytes) -> tuple[int, int]:
+    try:
+        with Image.open(io.BytesIO(data)) as im:
+            return im.size
+    except Image.DecompressionBombError as e:  # PIL's own limit, far above ours
+        raise HTTPException(413, "image is too large") from e
+    except (UnidentifiedImageError, OSError) as e:
+        raise HTTPException(400, "cannot decode image") from e
+
+
+class LimitedBody(APIRoute):
+    """Rejects bodies over MAX_UPLOAD_BYTES while they arrive, chunked ones included.
+
+    Starlette spools the whole multipart body before the endpoint runs.
+    """
+
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def limited(request: Request):
+            size = request.headers.get("content-length", "")
+            if size.isdigit() and int(size) > MAX_UPLOAD_BYTES:
+                raise HTTPException(413, "image is too large")
+            received = 0
+
+            async def receive():
+                nonlocal received
+                message = await request.receive()
+                received += len(message.get("body", b""))
+                if received > MAX_UPLOAD_BYTES:
+                    raise HTTPException(413, "image is too large")
+                return message
+
+            return await handler(Request(request.scope, receive))
+
+        return limited
 
 
 def create_app(detector, monitor=None, model_name: str = "") -> FastAPI:
@@ -21,6 +66,7 @@ def create_app(detector, monitor=None, model_name: str = "") -> FastAPI:
             await asyncio.to_thread(monitor.stop)
 
     app = FastAPI(title="firewatch", version=__version__, lifespan=lifespan)
+    upload = APIRouter(route_class=LimitedBody)
 
     @app.get("/health")
     def health():
@@ -31,12 +77,15 @@ def create_app(detector, monitor=None, model_name: str = "") -> FastAPI:
             "classes": list(detector.names.values()),
         }
 
-    @app.post("/detect")
+    @upload.post("/detect")
     def detect(
         file: UploadFile = File(...),
         conf: float | None = Query(None, ge=0.0, le=1.0),
     ):
         data = file.file.read()
+        w, h = image_size(data)
+        if w * h > MAX_PIXELS:
+            raise HTTPException(413, f"image is too large: {w}x{h}")
         img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
         if img is None:
             raise HTTPException(400, "cannot decode image")
@@ -57,4 +106,5 @@ def create_app(detector, monitor=None, model_name: str = "") -> FastAPI:
             return []
         return [asdict(s) for s in monitor.statuses()]
 
+    app.include_router(upload)
     return app
