@@ -1,0 +1,59 @@
+{
+  "model": "firewatch-yolo11s.onnx",
+  "onnxruntime": "1.23.2",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "cpu": "Intel64 Family 6 Model 165 Stepping 3, GenuineIntel",
+  "images": 100,
+  "mean_image_wh": [
+    640,
+    359
+  ],
+  "results": {
+    "cpu": {
+      "preprocess_ms": {
+        "mean": 3.21,
+        "p50": 3.15,
+        "p95": 3.75
+      },
+      "inference_ms": {
+        "mean": 90.38,
+        "p50": 90.59,
+        "p95": 95.76
+      },
+      "postprocess_ms": {
+        "mean": 0.33,
+        "p50": 0.35,
+        "p95": 0.42
+      },
+      "total_ms": {
+        "mean": 93.93,
+        "p50": 93.99,
+        "p95": 99.57
+      },
+      "fps": 10.6
+    },
+    "cuda": {
+      "preprocess_ms": {
+        "mean": 2.91,
+        "p50": 2.87,
+        "p95": 3.27
+      },
+      "inference_ms": {
+        "mean": 8.87,
+        "p50": 8.81,
+        "p95": 9.12
+      },
+      "postprocess_ms": {
+        "mean": 0.27,
+        "p50": 0.26,
+        "p95": 0.37
+      },
+      "total_ms": {
+        "mean": 12.05,
+        "p50": 11.96,
+        "p95": 12.61
+      },
+      "fps": 83.0
+    }
+  }
+}
