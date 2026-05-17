@@ -21,6 +21,19 @@ YOLO11s (предобучение COCO), 640x640, 30 эпох на RTX 2060 6 GB
 
 ![](docs/results.png)
 
+### Скорость (ONNX)
+
+`scripts/benchmark.py`: letterbox, инференс, NMS и перевод координат, 100 изображений из теста,
+batch 1, FP32, onnxruntime 1.23.2, Windows 10 ([docs/bench.json](docs/bench.json)).
+
+| Устройство | Провайдер | pre, мс | инференс, мс | post, мс | всего p50, мс | всего p95, мс | FPS |
+|------------|-----------|---------|--------------|----------|---------------|---------------|-----|
+| Intel Core i5-10400F | CPU | 3.2 | 90.4 | 0.3 | 94.0 | 99.6 | 10.6 |
+| NVIDIA RTX 2060 6 GB | CUDA | 2.9 | 8.9 | 0.3 | 12.0 | 12.6 | 83.0 |
+
+Смотреть каждый кадр не нужно: при 25 FPS и `process_every: 3` это ~8 инференсов в секунду,
+i5-10400F тянет так одну камеру, с `process_every: 10` по расчету 3-4, дальше нужен GPU.
+
 `scripts/check_onnx.py` сверяет экспорт с оригиналом на 50 тестовых изображениях: сырой выход
 сети расходится не больше чем на 0.0066 px, `OnnxDetector` и ultralytics на том же .onnx
 находят одни и те же 64 бокса. С .pt средний IoU 0.971: для .pt ultralytics дополняет кадр до
@@ -55,6 +68,7 @@ python scripts/train.py --keep-cuda-cache --resume runs/yolo11s-dfire/weights/la
 python scripts/evaluate.py runs/yolo11s-dfire/weights/best.pt --split test --out docs/test_metrics_pt.json
 python scripts/export_onnx.py runs/yolo11s-dfire/weights/best.pt   # -> models/firewatch-yolo11s.onnx
 python scripts/check_onnx.py runs/yolo11s-dfire/weights/best.pt models/firewatch-yolo11s.onnx
+python scripts/benchmark.py models/firewatch-yolo11s.onnx --providers cpu cuda
 ```
 
 На 6 GB под Windows обучение падало с CUDA OOM на границе эпох при 2-4 GB свободной памяти:
