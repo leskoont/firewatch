@@ -1,0 +1,16 @@
+.venv
+.git
+data
+runs
+events
+models
+docs
+tests
+scripts
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.env
+configs/cameras.yaml
+*.pt
+*.onnx
