@@ -51,6 +51,10 @@ def resolve_providers(requested: str | Sequence[str] = "auto") -> list[str]:
     if not providers:
         log.warning("none of %s available, falling back to CPU", wanted)
         providers = ["CPUExecutionProvider"]
+    if "CUDAExecutionProvider" in providers and hasattr(ort, "preload_dlls"):
+        # picks up CUDA/cuDNN from the nvidia-* wheels (onnxruntime-gpu[cuda,cudnn]),
+        # so no system-wide CUDA toolkit is needed
+        ort.preload_dlls()
     return providers
 
 

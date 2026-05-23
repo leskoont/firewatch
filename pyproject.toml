@@ -12,8 +12,6 @@ requires-python = ">=3.10"
 authors = [{ name = "Maxim" }]
 dependencies = [
     "numpy>=1.23",
-    "opencv-python>=4.7",
-    "onnxruntime>=1.16",
     "pyyaml>=6.0",
     "pydantic>=2.0",
     "httpx>=0.24",
@@ -25,6 +23,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# onnxruntime and opencv come in two incompatible flavours each (both install
+# into the same module), so the choice is an extra: cpu for servers and Docker,
+# gpu for a workstation. ultralytics pins full opencv-python, hence the same in gpu.
+cpu = [
+    "onnxruntime>=1.17",
+    "opencv-python-headless>=4.8",
+]
+gpu = [
+    "onnxruntime-gpu[cuda,cudnn]>=1.19",
+    "opencv-python>=4.8",
+]
 train = [
     "ultralytics>=8.3.0",
     "onnx>=1.15",
