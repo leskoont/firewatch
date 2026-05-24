@@ -67,6 +67,9 @@ class TelegramConfig(BaseModel):
 class StorageConfig(BaseModel):
     dir: Path = Path("events")
     snapshots: bool = True
+    clips: bool = False
+    clip_before_s: float = Field(3.0, ge=0)
+    clip_after_s: float = Field(5.0, ge=0)
 
 
 class CameraConfig(BaseModel):

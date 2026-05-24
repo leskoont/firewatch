@@ -16,6 +16,9 @@ telegram:
 storage:
   dir: events
   snapshots: true
+  clips: true
+  clip_before_s: 3
+  clip_after_s: 5
 
 api:
   enabled: true

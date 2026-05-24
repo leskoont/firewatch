@@ -4,6 +4,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
+# the PyPI opencv wheels for Linux can't encode H.264, so clips go straight to mp4v
+ENV FIREWATCH_CLIP_CODECS=mp4v
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libglib2.0-0 tzdata \

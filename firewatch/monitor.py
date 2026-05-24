@@ -12,7 +12,7 @@ import numpy as np
 from firewatch.config import CameraConfig, Settings, StorageConfig
 from firewatch.detector import Detection
 from firewatch.draw import draw_detections
-from firewatch.events import encode_jpeg, event_stem, save_snapshot
+from firewatch.events import ClipRecorder, encode_jpeg, event_stem, save_snapshot
 from firewatch.notify import TelegramNotifier
 from firewatch.smoothing import AlertGate
 from firewatch.stream import VideoStream
@@ -70,6 +70,7 @@ class CameraWorker(threading.Thread):
             reconnect_delay=cfg.reconnect_delay_s,
             loop=cfg.loop,
         )
+        self.recorder = ClipRecorder(storage.clip_before_s, storage.clip_after_s) if storage.clips else None
         self._last_hit: dict[str, tuple[int, np.ndarray, list[Detection]]] = {}
 
     def filter(self, dets: list[Detection]) -> list[Detection]:
@@ -93,6 +94,8 @@ class CameraWorker(threading.Thread):
                 self.status.state, self.status.error = "error", f"{type(e).__name__}: {e}"
                 self.stop_event.wait(delay)
                 delay = min(delay * 2, 60.0)
+        if self.recorder:
+            self.recorder.close()
         self.status.connected = False
         log.info("camera %s: stopped", self.cfg.name)
 
@@ -100,8 +103,11 @@ class CameraWorker(threading.Thread):
         tick, frames = None, 0
         # if detection throws, the live reader must stop now rather than after the backoff
         with contextlib.closing(self.stream.frames(self.stop_event)) as stream:
-            for _, frame in stream:
-                self._process(frame, self.filter(self.detector(frame)))
+            for idx, frame in stream:
+                dets = self.filter(self.detector(frame))
+                # for files the clip clock is the position in the video
+                t = None if self.cfg.is_live else idx / (self.stream.fps or 25.0)
+                self._process(frame, dets, t)
 
                 frames += 1
                 now = time.monotonic()
@@ -111,7 +117,7 @@ class CameraWorker(threading.Thread):
                     self.status.processing_fps = round(frames / (now - tick), 2)
                     tick, frames = now, 0
 
-    def _process(self, frame: np.ndarray, dets: list[Detection]) -> None:
+    def _process(self, frame: np.ndarray, dets: list[Detection], t: float | None = None) -> None:
         st = self.status
         st.state, st.error = "running", None
         st.frames_processed += 1
@@ -121,6 +127,8 @@ class CameraWorker(threading.Thread):
         due = self.gate.update(d.label for d in dets)
         for label in {d.label for d in dets}:
             self._last_hit[label] = (st.frames_processed, frame, dets)
+        if self.recorder:
+            self.recorder.push(draw_detections(frame, dets) if dets else frame, t)
         if not due:
             return
 
@@ -131,13 +139,16 @@ class CameraWorker(threading.Thread):
         scored = [d for c in due for d in self._last_hit[c][2] if d.label == c]
 
         now = datetime.now()
-        image = draw_detections(image, shown)
-        alert = Alert(self.cfg.name, due, scored, encode_jpeg(image), now)
         stem = event_stem(self.cfg.name, now)
-        jpg = self.storage.snapshots and save_snapshot(self.storage.dir, stem, image)
+        alert = Alert(self.cfg.name, due, scored, encode_jpeg(draw_detections(image, shown)), now)
+        saved = []
+        if self.storage.snapshots and save_snapshot(self.storage.dir, stem, alert.jpeg):
+            saved.append(f"{stem}.jpg")
+        if self.recorder and self.recorder.start(self.storage.dir / f"{stem}.mp4"):
+            saved.append(f"{stem}.mp4")
         st.alerts += 1
         st.last_alert_at = now.isoformat(timespec="seconds")
-        log.warning("ALERT %s (%s)", alert.caption.replace("\n", ", "), jpg.name if jpg else "no snapshot")
+        log.warning("ALERT %s (%s)", alert.caption.replace("\n", ", "), ", ".join(saved) or "nothing saved")
         self.on_alert(alert)
 
     def stop(self) -> None:

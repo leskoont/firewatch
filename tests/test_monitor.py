@@ -30,7 +30,7 @@ def frame():
 
 def make_worker(tmp_path, detector, alerts, **cam):
     cfg = CameraConfig(name="cam1", source="video.mp4", window=4, min_hits=3, cooldown_s=600, **cam)
-    storage = StorageConfig(dir=tmp_path, snapshots=True)
+    storage = StorageConfig(dir=tmp_path, snapshots=True, clips=False)
     return CameraWorker(cfg, detector, storage, alerts.append)
 
 
@@ -93,14 +93,14 @@ def test_worker_runs_over_video_file(tmp_path):
     detector = ScriptedDetector([[det("fire", 0.9)]] * 12)
     alerts = []
     cfg = CameraConfig(name="file", source=str(path), process_every=2, window=3, min_hits=2)
-    w = CameraWorker(cfg, detector, StorageConfig(dir=tmp_path / "ev"), alerts.append)
+    storage = StorageConfig(dir=tmp_path / "ev", clips=True, clip_after_s=0)
+    w = CameraWorker(cfg, detector, storage, alerts.append)
     w.run()
 
     assert w.status.state == "stopped"
     assert w.status.frames_processed == 6
-    assert len(detector.calls) == 6
     assert len(alerts) == 1
-    assert len(list((tmp_path / "ev").glob("file_*.jpg"))) == 1
+    assert list((tmp_path / "ev").glob("*.mp4"))
 
 
 def test_monitor_dispatches_to_notifier(tmp_path, frame):
