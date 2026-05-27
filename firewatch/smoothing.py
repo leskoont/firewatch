@@ -36,7 +36,10 @@ class Cooldown:
 
 
 class AlertGate:
-    """Per-camera decision: which classes are confirmed, and whether to alert right now."""
+    """Per-camera decision: which classes are confirmed, and whether to alert right now.
+
+    Each class has its own cooldown, so smoke that started during a fire cooldown still alerts.
+    """
 
     def __init__(
         self,
@@ -47,13 +50,13 @@ class AlertGate:
         clock: Callable[[], float] = time.monotonic,
     ):
         self.windows = {c: HitWindow(window, min_hits) for c in classes}
-        self.cooldown = Cooldown(cooldown_s, clock)
+        self.cooldowns = {c: Cooldown(cooldown_s, clock) for c in self.windows}
 
     def update(self, labels: Iterable[str]) -> list[str]:
         """Feed labels seen on the current frame. Returns the classes to alert about now."""
         present = set(labels)
         confirmed = [c for c, w in self.windows.items() if w.update(c in present)]
-        if not confirmed or not self.cooldown.ready():
-            return []
-        self.cooldown.trigger()
-        return confirmed
+        due = [c for c in confirmed if self.cooldowns[c].ready()]
+        for c in due:
+            self.cooldowns[c].trigger()
+        return due

@@ -31,7 +31,7 @@ camera_defaults:
   process_every: 3         # run the model on every 3rd frame
   window: 10               # look at the last 10 processed frames...
   min_hits: 6              # ...and alert if at least 6 of them had a detection
-  cooldown_s: 300          # no repeated alerts for this camera for 5 minutes
+  cooldown_s: 300          # no repeated alerts for the same class and camera for 5 minutes
   reconnect_delay_s: 5
   thresholds:
     fire: 0.40
