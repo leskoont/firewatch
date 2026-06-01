@@ -39,6 +39,7 @@ train = [
     "onnx>=1.15",
     "onnxslim>=0.1.30",
     "pyarrow>=14",
+    "numpy>=2",  # np.bitwise_count in scripts/dedup_test.py
     "tqdm",
 ]
 dev = [
