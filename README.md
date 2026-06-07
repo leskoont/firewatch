@@ -59,6 +59,11 @@ i5-10400F тянет так одну камеру, с `process_every: 10` по �
 находят одни и те же 64 бокса. С .pt средний IoU 0.971: для .pt ultralytics дополняет кадр до
 прямоугольника, кратного 32, а не до квадрата ([docs/check_onnx.json](docs/check_onnx.json)).
 
+| ONNX, тест без копий из train, порог 0.4 | |
+|---|---|
+| ![](docs/example_1.jpg) | ![](docs/example_2.jpg) |
+| ![](docs/example_3.jpg) | ![](docs/example_4.jpg) |
+
 ## Установка
 
 Нужен Python 3.10+.
