@@ -120,7 +120,9 @@ def test_monitor_dispatches_to_notifier(tmp_path, frame):
     )
     m = Monitor(settings, detector=None, notifier=Notifier())
     assert [w.cfg.name for w in m.workers] == ["a"]
+    m.sender.start()
     m.workers[0]._process(frame, [det("fire", 0.9)])
+    m.stop()
     assert len(sent) == 1 and sent[0].startswith("[a] fire")
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import queue
 import threading
 import time
 from dataclasses import dataclass, field
@@ -155,12 +156,41 @@ class CameraWorker(threading.Thread):
         self.stop_event.set()
 
 
+class AlertSender(threading.Thread):
+    """Sends alerts one at a time, so Telegram latency stays out of the camera loops."""
+
+    def __init__(self, notifier):
+        super().__init__(name="notify", daemon=True)
+        self.notifier = notifier
+        self._queue: queue.Queue[Alert | str | None] = queue.Queue()
+
+    def put(self, item: Alert | str) -> None:
+        self._queue.put(item)
+
+    def run(self) -> None:
+        while True:
+            item = self._queue.get()
+            if item is None:
+                return
+            try:
+                if isinstance(item, str):
+                    self.notifier.send_text(item)
+                elif not self.notifier.send_photo(item.jpeg, item.caption):
+                    self.notifier.send_text(item.caption)
+            except Exception:
+                log.exception("notification failed")
+
+    def stop(self, timeout: float = 10.0) -> None:
+        self._queue.put(None)
+        if self.is_alive():
+            self.join(timeout)
+
+
 class Monitor:
     def __init__(self, settings: Settings, detector, notifier: TelegramNotifier | None = None):
         self.settings = settings
         self.detector = detector
-        self.notifier = notifier
-        self._send_lock = threading.Lock()
+        self.sender = AlertSender(notifier) if notifier is not None else None
         self.workers = [
             CameraWorker(cam, detector, settings.storage, self._dispatch)
             for cam in settings.cameras
@@ -168,15 +198,15 @@ class Monitor:
         ]
 
     def _dispatch(self, alert: Alert) -> None:
-        if self.notifier is None:
-            return
-        with self._send_lock:
-            if not self.notifier.send_photo(alert.jpeg, alert.caption):
-                self.notifier.send_text(alert.caption)
+        if self.sender is not None:
+            self.sender.put(alert)
 
     def start(self) -> None:
         for w in self.workers:
             w.start()
+        if self.sender is not None:
+            self.sender.start()
+            self.sender.put(f"firewatch запущен, камер: {len(self.workers)}")
 
     def stop(self, timeout: float = 5.0) -> None:
         for w in self.workers:
@@ -184,6 +214,8 @@ class Monitor:
         for w in self.workers:
             if w.is_alive():
                 w.join(timeout)
+        if self.sender is not None:
+            self.sender.stop()
 
     def wait(self) -> None:
         for w in self.workers:
