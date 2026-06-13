@@ -22,7 +22,7 @@ IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
 def require_model(path: Path) -> None:
     if not path.exists():
-        sys.exit(f"model not found: {path}")
+        sys.exit(f"model not found: {path} (python scripts/download_weights.py, or see README)")
 
 
 def load_config(path: str) -> Settings:
