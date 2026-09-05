@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -16,6 +17,9 @@ log = logging.getLogger(__name__)
 # udp gives smeared gray frames on wifi
 os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 
+# also catches path-style credentials, e.g. XMEye: /user=admin_password=xxx_channel=1
+_SECRET_RE = re.compile(r"(pas\w*|pwd|token|key|auth)=[^&_/?#]*", re.IGNORECASE)
+
 
 def mask_credentials(url: str) -> str:
     try:
@@ -26,7 +30,7 @@ def mask_credentials(url: str) -> str:
         # a raw '@' in the password is fine, FFmpeg also splits at the last one
         start = url.find(netloc)
         url = f"{url[:start]}***@{netloc.rpartition('@')[2]}{url[start + len(netloc) :]}"
-    return url
+    return _SECRET_RE.sub(r"\1=***", url)
 
 
 def open_capture(source: str, timeout_ms: int = 10_000) -> cv2.VideoCapture:

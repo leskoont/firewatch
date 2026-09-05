@@ -51,6 +51,18 @@ class FakeCapture:
         ("rtsp://admin:p@ss@10.0.0.2/s", "rtsp://***@10.0.0.2/s"),
         ("rtsp://admin:p%40ss%2Fw0rd@10.0.0.2/s", "rtsp://***@10.0.0.2/s"),
         ("rtsp://u:p@10.0.0.2/live@main", "rtsp://***@10.0.0.2/live@main"),
+        (
+            "rtsp://10.0.0.2:554/user=admin_password=secret_channel=1_stream=0.sdp",
+            "rtsp://10.0.0.2:554/user=admin_password=***_channel=1_stream=0.sdp",
+        ),
+        (
+            "rtsp://10.0.0.2:554/user=admin&password=secret&channel=1&stream=0.sdp?",
+            "rtsp://10.0.0.2:554/user=admin&password=***&channel=1&stream=0.sdp?",
+        ),
+        ("http://cam/snap?loginuse=admin&loginpas=secret", "http://cam/snap?loginuse=admin&loginpas=***"),
+        ("http://cam/s?pass=x", "http://cam/s?pass=***"),
+        ("http://10.0.0.3/video.cgi?user=admin&pwd=secret", "http://10.0.0.3/video.cgi?user=admin&pwd=***"),
+        ("http://cam/mjpg?Token=abc&fps=5", "http://cam/mjpg?Token=***&fps=5"),
         ("videos/a.mp4", "videos/a.mp4"),
     ],
 )
