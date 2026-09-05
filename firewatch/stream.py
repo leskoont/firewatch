@@ -6,6 +6,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from functools import partial
+from urllib.parse import urlsplit
 
 import cv2
 import numpy as np
@@ -14,6 +15,18 @@ log = logging.getLogger(__name__)
 
 # udp gives smeared gray frames on wifi
 os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+
+
+def mask_credentials(url: str) -> str:
+    try:
+        netloc = urlsplit(url).netloc
+    except ValueError:
+        return "***"
+    if "@" in netloc:
+        # a raw '@' in the password is fine, FFmpeg also splits at the last one
+        start = url.find(netloc)
+        url = f"{url[:start]}***@{netloc.rpartition('@')[2]}{url[start + len(netloc) :]}"
+    return url
 
 
 def open_capture(source: str, timeout_ms: int = 10_000) -> cv2.VideoCapture:
@@ -43,6 +56,7 @@ class VideoStream:
         read_timeout: float = 10.0,
     ):
         self.source = source
+        self.name = mask_credentials(source)
         self.live = live
         self.every = max(1, every)
         self.reconnect_delay = reconnect_delay
@@ -67,7 +81,7 @@ class VideoStream:
     def _file_frames(self, stop: threading.Event) -> Iterator[tuple[int, np.ndarray]]:
         cap = self._open(self.source)
         if not cap.isOpened():
-            raise RuntimeError(f"cannot open {self.source}")
+            raise RuntimeError(f"cannot open {self.name}")
         self.connected = True
         self.fps = cap.get(cv2.CAP_PROP_FPS) or None
         idx, rewinds = -1, 0
@@ -80,7 +94,7 @@ class VideoStream:
                     if not self.loop:
                         break
                     if rewinds >= 3:
-                        raise RuntimeError(f"{self.source}: no frames after {rewinds} rewinds")
+                        raise RuntimeError(f"{self.name}: no frames after {rewinds} rewinds")
                     if rewinds:
                         stop.wait(1.0)
                     rewinds += 1
@@ -126,11 +140,11 @@ class VideoStream:
             except Exception as e:
                 error = f"{type(e).__name__}: {e}"
                 if error != self.error:
-                    log.exception("%s: reader failed", self.source)
+                    log.exception("%s: reader failed", self.name)
                 self.error = error
             self.connected = False
             if not stop.is_set():
-                log.warning("%s: %s, reconnect in %gs", self.source, self.error, self.reconnect_delay)
+                log.warning("%s: %s, reconnect in %gs", self.name, self.error, self.reconnect_delay)
                 self.reconnects += 1
                 stop.wait(self.reconnect_delay)
 
@@ -141,7 +155,7 @@ class VideoStream:
                 # FFmpeg prints the real reason (401, 404...) only to stderr
                 self.error = "cannot open stream, check the address, login and password"
                 return
-            log.info("%s: connected", self.source)
+            log.info("%s: connected", self.name)
             self.connected, self.error = True, None
             self.fps = cap.get(cv2.CAP_PROP_FPS) or None
             last_ok = time.monotonic()

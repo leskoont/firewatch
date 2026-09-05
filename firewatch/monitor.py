@@ -16,7 +16,7 @@ from firewatch.draw import draw_detections
 from firewatch.events import ClipRecorder, encode_jpeg, event_stem, save_snapshot
 from firewatch.notify import TelegramNotifier
 from firewatch.smoothing import AlertGate
-from firewatch.stream import VideoStream
+from firewatch.stream import VideoStream, mask_credentials
 
 log = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ class CameraWorker(threading.Thread):
         self.storage = storage
         self.on_alert = on_alert
         self.stop_event = threading.Event()
-        self.status = CameraStatus(name=cfg.name, source=cfg.source)
+        self.status = CameraStatus(name=cfg.name, source=mask_credentials(cfg.source))
         self.gate = AlertGate(cfg.thresholds, cfg.window, cfg.min_hits, cfg.cooldown_s)
         self.stream = VideoStream(
             cfg.source,
@@ -79,7 +79,7 @@ class CameraWorker(threading.Thread):
         return [d for d in dets if d.label in th and d.score >= th[d.label]]
 
     def run(self) -> None:
-        log.info("camera %s: starting (%s)", self.cfg.name, self.cfg.source)
+        log.info("camera %s: starting (%s)", self.cfg.name, self.status.source)
         self.status.state = "connecting"
         delay = 1.0
         while not self.stop_event.is_set():

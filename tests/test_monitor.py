@@ -153,7 +153,7 @@ def test_worker_restarts_after_crash(tmp_path):
 def test_status_follows_stream_between_frames(tmp_path, frame):
     settings = Settings(
         storage=StorageConfig(dir=tmp_path),
-        cameras=[CameraConfig(name="gate", source="rtsp://10.0.0.5/live")],
+        cameras=[CameraConfig(name="gate", source="rtsp://u:p@10.0.0.5/live")],
     )
     m = Monitor(settings, detector=None)
     w = m.workers[0]
@@ -166,3 +166,4 @@ def test_status_follows_stream_between_frames(tmp_path, frame):
     w.stream.reconnects = 2
     st = m.statuses()[0]
     assert (st.state, st.connected, st.reconnects) == ("reconnecting", False, 2)
+    assert st.source == "rtsp://***@10.0.0.5/live"

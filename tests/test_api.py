@@ -17,7 +17,7 @@ class FakeMonitor:
         self.stopped = 0
 
     def statuses(self):
-        return [CameraStatus(name="gate", source="rtsp://10.0.0.5/1", state="running", alerts=2)]
+        return [CameraStatus(name="gate", source="rtsp://***@10.0.0.5/1", state="running", alerts=2)]
 
     def stop(self):
         self.stopped += 1

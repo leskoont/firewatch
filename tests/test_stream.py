@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import pytest
 
-from firewatch.stream import VideoStream
+from firewatch.stream import VideoStream, mask_credentials
 
 
 class FakeCapture:
@@ -41,6 +41,21 @@ class FakeCapture:
 
     def release(self):
         pass
+
+
+@pytest.mark.parametrize(
+    ("url", "masked"),
+    [
+        ("rtsp://admin:secret@10.0.0.2:554/s", "rtsp://***@10.0.0.2:554/s"),
+        ("rtsp://10.0.0.2/s", "rtsp://10.0.0.2/s"),
+        ("rtsp://admin:p@ss@10.0.0.2/s", "rtsp://***@10.0.0.2/s"),
+        ("rtsp://admin:p%40ss%2Fw0rd@10.0.0.2/s", "rtsp://***@10.0.0.2/s"),
+        ("rtsp://u:p@10.0.0.2/live@main", "rtsp://***@10.0.0.2/live@main"),
+        ("videos/a.mp4", "videos/a.mp4"),
+    ],
+)
+def test_mask_credentials(url, masked):
+    assert mask_credentials(url) == masked
 
 
 def test_file_frames_are_skipped():
