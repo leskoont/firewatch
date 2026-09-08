@@ -1,10 +1,14 @@
+import threading
+import time
+from datetime import datetime
+
 import cv2
 import numpy as np
 import pytest
 
 from firewatch.config import CameraConfig, Settings, StorageConfig
 from firewatch.detector import Detection
-from firewatch.monitor import CameraWorker, Monitor
+from firewatch.monitor import Alert, AlertSender, CameraWorker, Monitor
 
 
 def det(label, score, box=(10, 10, 50, 50)):
@@ -126,6 +130,32 @@ def test_monitor_dispatches_to_notifier(tmp_path, frame):
     assert len(sent) == 1 and sent[0].startswith("[a] fire")
 
 
+def test_undelivered_alert_is_logged(tmp_path, frame, caplog):
+    texts = []
+
+    class Notifier:
+        def send_photo(self, image, caption):
+            return False
+
+        def send_text(self, text):
+            texts.append(text)
+            return len(texts) > 1
+
+    settings = Settings(
+        storage=StorageConfig(dir=tmp_path, snapshots=False),
+        cameras=[CameraConfig(name="a", source="a.mp4", window=1, min_hits=1, cooldown_s=0)],
+    )
+    m = Monitor(settings, detector=None, notifier=Notifier())
+    m.sender.start()
+    m.workers[0]._process(frame, [det("fire", 0.9)])  # photo and text both fail
+    m.workers[0]._process(frame, [det("fire", 0.9)])  # photo fails, text goes through
+    m.stop()
+    assert len(texts) == 2
+    assert [r.getMessage() for r in caplog.records if r.levelname == "ERROR"] == [
+        "notification failed: alert from a was not delivered"
+    ]
+
+
 def test_worker_restarts_after_crash(tmp_path):
     path = tmp_path / "clip.avi"
     writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"MJPG"), 10, (64, 48))
@@ -167,3 +197,61 @@ def test_status_follows_stream_between_frames(tmp_path, frame):
     st = m.statuses()[0]
     assert (st.state, st.connected, st.reconnects) == ("reconnecting", False, 2)
     assert st.source == "rtsp://***@10.0.0.5/live"
+    m.stop()
+
+
+def make_alert(camera="a", age=0.0):
+    return Alert(camera, ["fire"], [], b"jpeg", datetime.now(), created=time.monotonic() - age)
+
+
+class BlockingNotifier:
+    def __init__(self):
+        self.release = threading.Event()
+        self.sent = []
+
+    def send_photo(self, jpeg, caption):
+        self.release.wait(5)
+        self.sent.append(caption.split("]")[0][1:])
+        return True
+
+    def send_text(self, text):
+        return True
+
+
+def test_alert_queue_drops_oldest(caplog):
+    n = BlockingNotifier()
+    sender = AlertSender(n, max_queued=3)
+    sender.start()
+    sender.put(make_alert("first"))  # picked up at once and blocks the thread
+    time.sleep(0.1)
+    for cam in "abcde":
+        sender.put(make_alert(cam))
+    n.release.set()
+    sender.stop()
+    assert n.sent == ["first", "c", "d", "e"]
+    assert "dropping alert from a" in caplog.text and "dropping alert from b" in caplog.text
+
+
+def test_stale_alert_is_not_sent(caplog):
+    n = BlockingNotifier()
+    n.release.set()
+    sender = AlertSender(n, max_age_s=60)
+    sender.start()
+    sender.put(make_alert("old", age=120))
+    sender.put(make_alert("new"))
+    sender.stop()
+    assert n.sent == ["new"]
+    assert "alert from old is 120 s old" in caplog.text
+
+
+def test_stop_does_not_wait_for_a_dead_telegram(caplog):
+    n = BlockingNotifier()  # never released: every send hangs for 5 s
+    sender = AlertSender(n)
+    sender.start()
+    for cam in "abc":
+        sender.put(make_alert(cam))
+    t0 = time.monotonic()
+    sender.stop(timeout=0.5)
+    assert time.monotonic() - t0 < 1.5
+    assert "2 notification(s) not sent" in caplog.text
+    n.release.set()

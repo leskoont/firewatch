@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import queue
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -20,6 +20,10 @@ from firewatch.stream import VideoStream, mask_credentials
 
 log = logging.getLogger(__name__)
 
+MAX_QUEUED_ALERTS = 20
+# a fire alert that arrives 10 minutes late is noise
+ALERT_MAX_AGE_S = 600.0
+
 
 @dataclass
 class Alert:
@@ -28,6 +32,7 @@ class Alert:
     detections: list[Detection]
     jpeg: bytes
     time: datetime
+    created: float = field(default_factory=time.monotonic)
 
     @property
     def caption(self) -> str:
@@ -157,33 +162,70 @@ class CameraWorker(threading.Thread):
 
 
 class AlertSender(threading.Thread):
-    """Sends alerts one at a time, so Telegram latency stays out of the camera loops."""
+    """Sends alerts one at a time, so Telegram latency stays out of the camera loops.
 
-    def __init__(self, notifier):
+    While Telegram is down every alert can take a minute of retries, so the queue is
+    bounded (oldest alerts go first) and alerts older than `max_age_s` are skipped.
+    """
+
+    def __init__(self, notifier, max_queued: int = MAX_QUEUED_ALERTS, max_age_s: float = ALERT_MAX_AGE_S):
         super().__init__(name="notify", daemon=True)
         self.notifier = notifier
-        self._queue: queue.Queue[Alert | str | None] = queue.Queue()
+        self.max_age_s = max_age_s
+        self._queue: deque[Alert | str] = deque(maxlen=max_queued)
+        self._cond = threading.Condition()
+        self._stopping = False
 
     def put(self, item: Alert | str) -> None:
-        self._queue.put(item)
+        with self._cond:
+            if len(self._queue) == self._queue.maxlen:
+                log.warning("notification queue is full, dropping %s", _describe(self._queue[0]))
+            self._queue.append(item)
+            self._cond.notify()
 
     def run(self) -> None:
         while True:
-            item = self._queue.get()
-            if item is None:
-                return
+            with self._cond:
+                self._cond.wait_for(lambda: self._queue or self._stopping)
+                if not self._queue:
+                    return
+                item = self._queue.popleft()
             try:
                 if isinstance(item, str):
                     self.notifier.send_text(item)
-                elif not self.notifier.send_photo(item.jpeg, item.caption):
-                    self.notifier.send_text(item.caption)
+                else:
+                    self._send(item)
             except Exception:
                 log.exception("notification failed")
 
-    def stop(self, timeout: float = 10.0) -> None:
-        self._queue.put(None)
+    def _send(self, alert: Alert) -> None:
+        n = self.notifier
+        for attempt in (lambda: n.send_photo(alert.jpeg, alert.caption), lambda: n.send_text(alert.caption)):
+            age = time.monotonic() - alert.created
+            if age > self.max_age_s:
+                log.error("alert from %s is %.0f s old, not sending it", alert.camera, age)
+                return
+            if attempt():
+                return
+        # the cooldown is already armed by now, so a lost alert has to at least be loud
+        log.error("notification failed: alert from %s was not delivered", alert.camera)
+
+    def stop(self, timeout: float = 3.0) -> None:
+        """Give the queue `timeout` seconds to drain, then drop the rest."""
+        with self._cond:
+            self._stopping = True
+            self._cond.notify_all()
         if self.is_alive():
             self.join(timeout)
+        with self._cond:
+            left = len(self._queue)
+            self._queue.clear()
+        if left:
+            log.warning("shutting down, %d notification(s) not sent", left)
+
+
+def _describe(item: Alert | str) -> str:
+    return "a text message" if isinstance(item, str) else f"alert from {item.camera} at {item.time:%H:%M:%S}"
 
 
 class Monitor:
