@@ -53,6 +53,7 @@ class CameraStatus:
     frames_processed: int = 0
     processing_fps: float = 0.0
     last_frame_at: str | None = None
+    last_frame_age_s: float | None = None
     last_alert_at: str | None = None
     alerts: int = 0
     last_detections: list[dict] = field(default_factory=list)
@@ -77,6 +78,8 @@ class CameraWorker(threading.Thread):
             loop=cfg.loop,
         )
         self.recorder = ClipRecorder(storage.clip_before_s, storage.clip_after_s) if storage.clips else None
+        # counts from start too, so a camera that never connects goes stale in /health
+        self.last_frame = time.monotonic()
         self._last_hit: dict[str, tuple[int, np.ndarray, list[Detection]]] = {}
 
     def filter(self, dets: list[Detection]) -> list[Detection]:
@@ -86,6 +89,7 @@ class CameraWorker(threading.Thread):
     def run(self) -> None:
         log.info("camera %s: starting (%s)", self.cfg.name, self.status.source)
         self.status.state = "connecting"
+        self.last_frame = time.monotonic()
         delay = 1.0
         while not self.stop_event.is_set():
             processed = self.status.frames_processed
@@ -127,6 +131,7 @@ class CameraWorker(threading.Thread):
         st = self.status
         st.state, st.error = "running", None
         st.frames_processed += 1
+        self.last_frame = time.monotonic()
         st.last_frame_at = datetime.now().isoformat(timespec="seconds")
         st.last_detections = [d.to_dict() for d in dets]
 
@@ -266,10 +271,12 @@ class Monitor:
 
     def statuses(self) -> list[CameraStatus]:
         # the stream changes these between frames, e.g. while an RTSP camera is down
+        now = time.monotonic()
         for w in self.workers:
             st = w.status
             st.connected = w.stream.connected
             st.reconnects = w.stream.reconnects
+            st.last_frame_age_s = round(now - w.last_frame, 1)
             if st.state == "running" and not st.connected:
                 st.state = "reconnecting"
             if st.state in ("connecting", "reconnecting"):

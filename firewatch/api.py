@@ -8,7 +8,7 @@ from dataclasses import asdict
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, FastAPI, File, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, FastAPI, File, HTTPException, Query, Request, Response, UploadFile
 from fastapi.routing import APIRoute
 from PIL import Image, UnidentifiedImageError
 
@@ -17,6 +17,7 @@ from firewatch import __version__
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 # a few hundred KB of PNG can decode into gigabytes, so the size is checked from the header first
 MAX_PIXELS = 40_000_000
+STALE_AFTER_S = 60.0
 
 
 def image_size(data: bytes) -> tuple[int, int]:
@@ -69,13 +70,25 @@ def create_app(detector, monitor=None, model_name: str = "") -> FastAPI:
     upload = APIRouter(route_class=LimitedBody)
 
     @app.get("/health")
-    def health():
-        return {
+    def health(response: Response):
+        body = {
             "status": "ok",
             "model": model_name,
             "providers": detector.providers,
             "classes": list(detector.names.values()),
         }
+        if monitor is not None:
+            ages = {s.name: s.last_frame_age_s for s in monitor.statuses()}
+            body["last_frame_age_s"] = ages
+            stale = sorted(name for name, age in ages.items() if age is None or age > STALE_AFTER_S)
+            if not ages:
+                body["status"] = "no cameras"
+                response.status_code = 503
+            elif stale:
+                body["status"] = "degraded"
+                body["stale"] = stale
+                response.status_code = 503
+        return body
 
     @upload.post("/detect")
     def detect(

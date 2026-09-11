@@ -13,11 +13,17 @@ from firewatch.monitor import CameraStatus
 
 
 class FakeMonitor:
-    def __init__(self):
+    def __init__(self, gate=1.5, **ages):
+        self.ages = {"gate": gate, **ages} if gate is not None else ages
         self.stopped = 0
 
     def statuses(self):
-        return [CameraStatus(name="gate", source="rtsp://***@10.0.0.5/1", state="running", alerts=2)]
+        cams = []
+        for name, age in self.ages.items():
+            cam = CameraStatus(name=name, source="rtsp://***@10.0.0.5/1", state="running", alerts=2)
+            cam.last_frame_age_s = age
+            cams.append(cam)
+        return cams
 
     def stop(self):
         self.stopped += 1
@@ -41,6 +47,29 @@ def test_health(client):
     assert body["model"] == "dummy.onnx"
     assert body["classes"] == ["smoke", "fire"]
     assert "CPUExecutionProvider" in body["providers"]
+
+
+def test_health_fails_when_cameras_are_silent(dummy_model):
+    det = OnnxDetector(dummy_model, "CPUExecutionProvider")
+    resp = TestClient(create_app(det, FakeMonitor(gate=300))).get("/health")
+    assert resp.status_code == 503
+    assert resp.json()["last_frame_age_s"] == {"gate": 300}
+
+
+def test_health_degraded_when_one_camera_is_stale(dummy_model):
+    det = OnnxDetector(dummy_model, "CPUExecutionProvider")
+    resp = TestClient(create_app(det, FakeMonitor(gate=2.0, yard=90.0, dock=None))).get("/health")
+    assert resp.status_code == 503
+    body = resp.json()
+    assert body["status"] == "degraded"
+    assert body["stale"] == ["dock", "yard"]
+
+
+def test_health_without_cameras(dummy_model):
+    det = OnnxDetector(dummy_model, "CPUExecutionProvider")
+    resp = TestClient(create_app(det, FakeMonitor(gate=None))).get("/health")
+    assert resp.status_code == 503
+    assert resp.json()["status"] == "no cameras"
 
 
 def test_monitor_is_stopped_on_shutdown(dummy_model):

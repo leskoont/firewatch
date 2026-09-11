@@ -16,3 +16,10 @@ services:
       - ./configs/cameras.yaml:/app/configs/cameras.yaml:ro
       - ./events:/app/events
       - ./data/videos:/app/data/videos:ro
+    # /health returns 503 when any camera has sent nothing for a minute; remove with --no-api
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
