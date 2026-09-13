@@ -26,6 +26,9 @@ def require_model(path: Path) -> None:
 
 
 def load_config(path: str) -> Settings:
+    if Path(path).is_dir():
+        # Docker Desktop creates a directory in place of a missing bind-mounted file
+        sys.exit(f"{path} is a directory, not a config (cp configs/cameras.example.yaml {path})")
     try:
         return load_settings(path)
     except (OSError, ValueError, yaml.YAMLError) as e:
@@ -53,6 +56,10 @@ def cmd_run(args) -> None:
             sys.exit("all cameras are disabled and the API is off, nothing to do")
         log.warning("all cameras are disabled, only the API will run")
     detector = build_detector(settings)
+    try:
+        settings.check_classes(detector.names.values())
+    except ValueError as e:
+        sys.exit(f"{args.config}: {e}")
 
     tg = settings.telegram
     notifier = TelegramNotifier(tg.token, tg.chat_id, tg.timeout) if tg.enabled else None

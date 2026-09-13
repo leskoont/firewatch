@@ -13,7 +13,13 @@ services:
       - "127.0.0.1:8000:8000"
     volumes:
       - ./models:/app/models:ro
-      - ./configs/cameras.yaml:/app/configs/cameras.yaml:ro
+      # long form, so a missing cameras.yaml is an error and not an empty directory
+      - type: bind
+        source: ./configs/cameras.yaml
+        target: /app/configs/cameras.yaml
+        read_only: true
+        bind:
+          create_host_path: false
       - ./events:/app/events
       - ./data/videos:/app/data/videos:ro
     # /health returns 503 when any camera has sent nothing for a minute; remove with --no-api

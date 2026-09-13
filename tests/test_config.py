@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from firewatch.config import CameraConfig, expand_env, load_settings
+from firewatch.config import CameraConfig, Settings, expand_env, load_settings
 
 EXAMPLE = Path(__file__).parent.parent / "configs" / "cameras.example.yaml"
 
@@ -93,10 +93,29 @@ def test_min_hits_above_window():
         CameraConfig(name="x", source="a.mp4", window=3, min_hits=5)
 
 
-@pytest.mark.parametrize("thresholds", [{"fire": 40}, {"smoke": -0.1}])
+def test_unknown_keys_are_rejected(tmp_path):
+    path = write(
+        tmp_path,
+        """
+        storage:
+          clip: true
+    """,
+    )
+    with pytest.raises(ValidationError, match="clip"):
+        load_settings(path)
+
+
+@pytest.mark.parametrize("thresholds", [{}, {"fire": 40}, {"smoke": -0.1}])
 def test_bad_thresholds(thresholds):
     with pytest.raises(ValidationError):
         CameraConfig(name="x", source="a.mp4", thresholds=thresholds)
+
+
+def test_threshold_classes_must_exist_in_model():
+    cfg = Settings(cameras=[CameraConfig(name="x", source="a.mp4", thresholds={"Fire": 0.4})])
+    cfg.check_classes(["Fire"])
+    with pytest.raises(ValueError, match="Fire"):
+        cfg.check_classes(["smoke", "fire"])
 
 
 def test_numeric_chat_id(tmp_path):
@@ -138,6 +157,14 @@ def test_example_config_parses(monkeypatch):
     assert cfg.cameras[1].process_every == 2 and cfg.cameras[1].loop
 
 
+def test_config_path_is_a_directory(tmp_path):
+    from firewatch.cli import load_config
+
+    (tmp_path / "cameras.yaml").mkdir()
+    with pytest.raises(SystemExit, match="is a directory"):
+        load_config(str(tmp_path / "cameras.yaml"))
+
+
 def test_thresholds_are_merged_per_class(tmp_path):
     cfg = load_settings(
         write(
@@ -154,3 +181,40 @@ def test_thresholds_are_merged_per_class(tmp_path):
     a, b = cfg.cameras
     assert a.thresholds == {"fire": 0.4, "smoke": 0.7}
     assert b.thresholds == {"fire": 0.4}
+
+
+def test_threshold_below_model_conf_warns(caplog):
+    Settings(model={"conf": 0.3}, cameras=[CameraConfig(name="a", source="a.mp4", thresholds={"fire": 0.2})])
+    assert "camera a: thresholds for ['fire'] are below model.conf=0.3" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "telegram: {enabled: true, token: '1:x', chat_id: }",
+        "cameras: [{name: a, source: }]",
+        "cameras: [{name: '', source: a.mp4}]",
+    ],
+)
+def test_empty_required_values(tmp_path, text):
+    with pytest.raises(ValidationError):
+        load_settings(write(tmp_path, text))
+
+
+@pytest.mark.parametrize(
+    ("text", "error"),
+    [
+        ("cameras:", None),
+        ("cameras: [rtsp://u:pw@cam/1]", "must be a mapping, got str"),
+        ("cameras: {name: a}", "cameras a list"),
+        ("- a\n- b", "must be a YAML mapping"),
+    ],
+)
+def test_malformed_config(tmp_path, text, error):
+    path = write(tmp_path, text)
+    if error is None:
+        assert load_settings(path).cameras == []
+    else:
+        with pytest.raises(ValueError, match=error) as e:
+            load_settings(path)
+        assert "pw" not in str(e.value)

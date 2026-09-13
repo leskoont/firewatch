@@ -4,7 +4,7 @@
 model:
   path: models/firewatch-yolo11s.onnx
   providers: auto          # auto | CPUExecutionProvider | CUDAExecutionProvider
-  conf: 0.25
+  conf: 0.25               # detector floor; per-camera thresholds below it have no effect
   iou: 0.45
   threads: null            # onnxruntime intra-op threads, null = library default
 

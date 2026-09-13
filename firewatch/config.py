@@ -3,11 +3,12 @@ from __future__ import annotations
 import logging
 import os
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Annotated, Any
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 log = logging.getLogger(__name__)
 
@@ -34,10 +35,15 @@ def expand_env(value: Any) -> Any:
     return value
 
 
+class Strict(BaseModel):
+    # typos in keys fail at startup
+    model_config = ConfigDict(extra="forbid")
+
+
 Score = Annotated[float, Field(ge=0, le=1)]
 
 
-class ModelConfig(BaseModel):
+class ModelConfig(Strict):
     path: Path = Path("models/firewatch-yolo11s.onnx")
     providers: str | list[str] = "auto"
     conf: Score = 0.25
@@ -45,7 +51,7 @@ class ModelConfig(BaseModel):
     threads: int | None = Field(None, ge=1)
 
 
-class TelegramConfig(BaseModel):
+class TelegramConfig(Strict):
     enabled: bool = False
     token: str = ""
     chat_id: str = ""
@@ -64,7 +70,7 @@ class TelegramConfig(BaseModel):
         return self
 
 
-class StorageConfig(BaseModel):
+class StorageConfig(Strict):
     dir: Path = Path("events")
     snapshots: bool = True
     clips: bool = False
@@ -72,16 +78,16 @@ class StorageConfig(BaseModel):
     clip_after_s: float = Field(5.0, ge=0)
 
 
-class CameraConfig(BaseModel):
-    name: str
-    source: str
+class CameraConfig(Strict):
+    name: str = Field(min_length=1)
+    source: str = Field(min_length=1)
     enabled: bool = True
     process_every: int = Field(3, ge=1)
     window: int = Field(10, ge=1)
     min_hits: int = Field(6, ge=1)
     cooldown_s: float = Field(300.0, ge=0)
     # per-class confidence; classes not listed here never raise an alert
-    thresholds: dict[str, Score] = Field(default_factory=lambda: {"fire": 0.4, "smoke": 0.5})
+    thresholds: dict[str, Score] = Field(default_factory=lambda: {"fire": 0.4, "smoke": 0.5}, min_length=1)
     reconnect_delay_s: float = Field(5.0, ge=0)
     loop: bool = False  # restart video files at EOF, handy for demos
 
@@ -101,13 +107,13 @@ class CameraConfig(BaseModel):
         return self.source.isdigit() or "://" in self.source
 
 
-class ApiConfig(BaseModel):
+class ApiConfig(Strict):
     enabled: bool = True
     host: str = "0.0.0.0"
     port: int = 8000
 
 
-class Settings(BaseModel):
+class Settings(Strict):
     model: ModelConfig = ModelConfig()
     telegram: TelegramConfig = TelegramConfig()
     storage: StorageConfig = StorageConfig()
@@ -122,8 +128,33 @@ class Settings(BaseModel):
             raise ValueError(f"duplicate camera names: {sorted(dupes)}")
         return self
 
+    @model_validator(mode="after")
+    def _warn_low_thresholds(self):
+        for cam in self.cameras:
+            low = sorted(k for k, v in cam.thresholds.items() if v < self.model.conf)
+            if low:
+                log.warning(
+                    "camera %s: thresholds for %s are below model.conf=%g and have no effect",
+                    cam.name,
+                    low,
+                    self.model.conf,
+                )
+        return self
 
-def _merge_camera(defaults: dict, cam: dict) -> dict:
+    def check_classes(self, names: Iterable[str]) -> None:
+        names = set(names)
+        for cam in self.cameras:
+            unknown = set(cam.thresholds) - names
+            if unknown:
+                raise ValueError(
+                    f"camera {cam.name}: thresholds for {sorted(unknown)}, "
+                    f"but the model only knows {sorted(names)}"
+                )
+
+
+def _merge_camera(defaults: dict, cam: Any) -> dict:
+    if not isinstance(cam, dict):
+        raise ValueError(f"every entry in cameras must be a mapping, got {type(cam).__name__}")
     merged = {**defaults, **cam}
     if isinstance(defaults.get("thresholds"), dict) and isinstance(cam.get("thresholds"), dict):
         merged["thresholds"] = {**defaults["thresholds"], **cam["thresholds"]}
@@ -135,7 +166,12 @@ def _merge_camera(defaults: dict, cam: dict) -> dict:
 def load_settings(path: str | Path) -> Settings:
     with open(path, encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
+    if not isinstance(raw, dict):
+        raise ValueError("the config must be a YAML mapping")
 
     defaults = raw.pop("camera_defaults", None) or {}
-    raw["cameras"] = [_merge_camera(defaults, cam) for cam in raw.get("cameras") or []]
+    cameras = raw.get("cameras") or []
+    if not isinstance(defaults, dict) or not isinstance(cameras, list):
+        raise ValueError("camera_defaults must be a mapping and cameras a list")
+    raw["cameras"] = [_merge_camera(defaults, cam) for cam in cameras]
     return Settings.model_validate(expand_env(raw))
