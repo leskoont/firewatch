@@ -218,3 +218,21 @@ def test_malformed_config(tmp_path, text, error):
         with pytest.raises(ValueError, match=error) as e:
             load_settings(path)
         assert "pw" not in str(e.value)
+
+
+def test_validation_errors_do_not_show_values(tmp_path, capsys):
+    from firewatch.cli import load_config
+
+    path = write(
+        tmp_path,
+        """
+        telegram: {enabled: true, token: "123:FAKE-secret-token", chat_id: ""}
+        cameras:
+          - source: rtsp://admin:FakePass1@10.0.0.1/s
+    """,
+    )
+    with pytest.raises(SystemExit) as e:
+        load_config(str(path))
+    msg = str(e.value)
+    assert "telegram" in msg and "cameras.0.name: Field required" in msg
+    assert "FAKE-secret" not in msg and "FakePass1" not in msg

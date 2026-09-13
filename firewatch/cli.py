@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 import yaml
 from dotenv import load_dotenv
+from pydantic import ValidationError
 
 from firewatch.config import Settings, load_settings
 from firewatch.detector import OnnxDetector
@@ -31,6 +32,11 @@ def load_config(path: str) -> Settings:
         sys.exit(f"{path} is a directory, not a config (cp configs/cameras.example.yaml {path})")
     try:
         return load_settings(path)
+    except ValidationError as e:
+        # the default message echoes the offending values, i.e. tokens and RTSP passwords
+        errors = e.errors(include_input=False, include_url=False)
+        lines = [f"  {'.'.join(map(str, err['loc'])) or '<root>'}: {err['msg']}" for err in errors]
+        sys.exit(f"{path}: invalid config\n" + "\n".join(lines))
     except (OSError, ValueError, yaml.YAMLError) as e:
         sys.exit(f"{path}: {e}")
 
