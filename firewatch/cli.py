@@ -179,6 +179,9 @@ def setup_logging(verbose: bool = False) -> None:
         level=logging.DEBUG if verbose else logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
     )
+    # httpx logs every request URL at INFO, and Telegram URLs contain the bot token
+    for name in ("httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 if __name__ == "__main__":

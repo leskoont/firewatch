@@ -1,5 +1,8 @@
+import logging
+
 import httpx
 
+from firewatch.cli import setup_logging
 from firewatch.notify import TelegramNotifier
 
 JPEG = b"\xff\xd8\xff\xe0fake-jpeg\xff\xd9"
@@ -80,6 +83,20 @@ def test_non_json_reply_is_a_failure(caplog):
     n = make(lambda r: httpx.Response(200, text="<html>502 Bad Gateway</html>"), retries=1)
     assert not n.send_text("x")
     assert "giving up" in caplog.text
+
+
+def test_token_is_not_in_errors(caplog):
+    def handler(request):
+        raise httpx.ConnectError(f"cannot reach {request.url}", request=request)
+
+    assert not make(handler, retries=0).send_photo(JPEG)
+    assert "cannot reach" in caplog.text
+    assert "TOKEN" not in caplog.text
+
+
+def test_setup_logging_quiets_httpx():
+    setup_logging()
+    assert not logging.getLogger("httpx").isEnabledFor(logging.INFO)
 
 
 def test_long_caption_is_trimmed():
