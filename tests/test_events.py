@@ -22,7 +22,7 @@ def test_event_stem():
 
 @pytest.mark.parametrize(
     ("name", "prefix"),
-    [("gate 2/left", "gate_2_left_"), ('a:b*c?"d"', "a_b_c_d_"), ("c:\\cams\\x", "c_cams_x_")],
+    [("склад 1", "склад_1_"), ("../etc/x", "etc_x_"), ('a:b*c?"d"', "a_b_c_d_"), ("..", "camera_")],
 )
 def test_event_stem_is_a_safe_file_name(name, prefix):
     assert event_stem(name, datetime(2024, 5, 1)).startswith(prefix)

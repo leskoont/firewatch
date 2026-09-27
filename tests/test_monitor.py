@@ -180,6 +180,19 @@ def test_worker_restarts_after_crash(tmp_path):
     assert w.status.state == "stopped"
 
 
+def test_non_ascii_camera_name(tmp_path, frame):
+    alerts = []
+    cfg = CameraConfig(name="склад-1", source="v.mp4", window=1, min_hits=1)
+    storage = StorageConfig(dir=tmp_path / "события", clips=True, clip_before_s=1, clip_after_s=0)
+    w = CameraWorker(cfg, None, storage, alerts.append)
+    w._process(frame, [det("fire", 0.9)], t=0.0)
+    w._process(frame, [], t=0.1)  # closes the clip
+
+    files = sorted(storage.dir.iterdir())
+    assert [p.suffix for p in files] == [".jpg", ".mp4"]
+    assert all(p.name.startswith("склад-1_") and p.stat().st_size > 0 for p in files)
+
+
 def test_status_follows_stream_between_frames(tmp_path, frame):
     settings = Settings(
         storage=StorageConfig(dir=tmp_path),

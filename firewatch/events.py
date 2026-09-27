@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import time
+import uuid
 from collections import deque
 from collections.abc import Callable
 from datetime import datetime
@@ -20,7 +21,7 @@ _UNSAFE_RE = re.compile(r'[\\/:*?"<>|\s]+')
 
 def event_stem(camera: str, when: datetime | None = None) -> str:
     when = when or datetime.now()
-    camera = _UNSAFE_RE.sub("_", camera)
+    camera = _UNSAFE_RE.sub("_", camera).strip("._") or "camera"
     return f"{camera}_{when:%Y%m%d_%H%M%S}_{when.microsecond // 1000:03d}"
 
 
@@ -83,6 +84,7 @@ class ClipRecorder:
         self._buffer: deque[tuple[float, np.ndarray]] = deque()
         self._writer: cv2.VideoWriter | None = None
         self._stop_at = 0.0
+        self._tmp: Path | None = None
         self.path: Path | None = None
 
     @property
@@ -107,12 +109,14 @@ class ClipRecorder:
             return False
         h, w = self._buffer[-1][1].shape[:2]
         self._size = (w, h)
+        # cv2 can't open non-ASCII paths on Windows: write under an ASCII name, rename when done
+        tmp = path.with_name(f".{uuid.uuid4().hex}.mp4")
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
         except OSError as e:
             log.error("cannot record clip %s: %s", path, e)
             return False
-        writer = open_writer(path, self._estimate_fps(), (w, h))
+        writer = open_writer(tmp, self._estimate_fps(), (w, h))
         if writer is None:
             log.error("cannot open video writer for %s", path)
             return False
@@ -122,7 +126,7 @@ class ClipRecorder:
         self._stop_at = self._buffer[-1][0] + self.after_s
         self._buffer.clear()
         self._writer = writer
-        self.path = path
+        self._tmp, self.path = tmp, path
         return True
 
     def _estimate_fps(self) -> float:
@@ -136,7 +140,11 @@ class ClipRecorder:
             return
         self._writer.release()
         self._writer = None
-        log.info("clip saved: %s", self.path)
+        try:
+            self._tmp.replace(self.path)
+            log.info("clip saved: %s", self.path)
+        except OSError as e:
+            log.error("cannot save clip %s: %s", self.path, e)
 
     def close(self) -> None:
         self._finish()
