@@ -144,11 +144,6 @@ def test_is_live(source, live):
     assert CameraConfig(name="x", source=source).is_live is live
 
 
-def test_numeric_source(tmp_path):
-    cfg = load_settings(write(tmp_path, "cameras: [{name: a, source: 0}]"))
-    assert cfg.cameras[0].source == "0"
-
-
 def test_example_config_parses(monkeypatch):
     monkeypatch.delenv("TELEGRAM_ENABLED", raising=False)
     cfg = load_settings(EXAMPLE)

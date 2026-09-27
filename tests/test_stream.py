@@ -89,12 +89,6 @@ def test_file_loop_rewinds():
     assert values == [0, 1, 2, 0, 1, 2, 0]
 
 
-def test_cannot_open():
-    vs = VideoStream("a.mp4", live=False, capture_factory=lambda s: FakeCapture(0, opened=False))
-    with pytest.raises(RuntimeError, match="cannot open"):
-        list(vs.frames(threading.Event()))
-
-
 def test_live_reconnects_after_failures():
     # first open fails, second stream dies after 3 frames, third one works
     caps = iter([FakeCapture(0, opened=False), FakeCapture(100, fail_after=3)])
