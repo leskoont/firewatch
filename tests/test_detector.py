@@ -11,6 +11,11 @@ def test_reads_metadata(dummy_model):
     assert det.providers == ["CPUExecutionProvider"]
 
 
+def test_dynamic_input_is_rejected(dynamic_model):
+    with pytest.raises(ValueError, match="dynamic=False"):
+        OnnxDetector(dynamic_model, "CPUExecutionProvider")
+
+
 def test_detections_in_source_coordinates(dummy_model):
     det = OnnxDetector(dummy_model, "CPUExecutionProvider", conf=0.25, iou=0.45)
     # 128x256 -> ratio 0.25, letterboxed to 64x32 with 16 px padding top and bottom

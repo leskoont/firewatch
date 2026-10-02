@@ -76,10 +76,9 @@ class OnnxDetector:
         )
         inp = self.session.get_inputs()[0]
         self.input_name = inp.name
-        h, w = inp.shape[2], inp.shape[3]
+        h, w = inp.shape[2:]
         if not isinstance(h, int) or not isinstance(w, int):
-            # dynamic axes: fall back to the export size stored in metadata, or 640
-            h, w = self._meta_imgsz() or (640, 640)
+            raise ValueError(f"{model_path}: input shape {inp.shape} is not fixed, export with dynamic=False")
         self.input_hw = (h, w)
         self.names = names or self._meta_names() or DEFAULT_NAMES
         self.conf = conf
@@ -97,13 +96,6 @@ class OnnxDetector:
         if not raw:
             return None
         return {int(k): str(v) for k, v in ast.literal_eval(raw).items()}
-
-    def _meta_imgsz(self) -> tuple[int, int] | None:
-        raw = self._meta().get("imgsz")
-        if not raw:
-            return None
-        h, w = ast.literal_eval(raw)
-        return int(h), int(w)
 
     def infer_raw(self, img_bgr: np.ndarray):
         padded, info = letterbox(img_bgr, self.input_hw)

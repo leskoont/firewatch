@@ -19,7 +19,7 @@ def make_head_output() -> np.ndarray:
     return np.asarray(anchors, np.float32).T[None]
 
 
-def build_dummy_model(path) -> None:
+def build_dummy_model(path, input_shape=(1, 3, INPUT, INPUT)) -> None:
     # output = const + 0 * sum(input): keeps the input in the graph, ignores its values
     const = numpy_helper.from_array(make_head_output(), "head")
     zero = numpy_helper.from_array(np.zeros((), np.float32), "zero")
@@ -31,7 +31,7 @@ def build_dummy_model(path) -> None:
     graph = helper.make_graph(
         nodes,
         "dummy",
-        [helper.make_tensor_value_info("images", TensorProto.FLOAT, [1, 3, INPUT, INPUT])],
+        [helper.make_tensor_value_info("images", TensorProto.FLOAT, list(input_shape))],
         [helper.make_tensor_value_info("output0", TensorProto.FLOAT, [1, 6, 3])],
         initializer=[const, zero],
     )
@@ -48,4 +48,11 @@ def build_dummy_model(path) -> None:
 def dummy_model(tmp_path_factory):
     path = tmp_path_factory.mktemp("model") / "dummy.onnx"
     build_dummy_model(path)
+    return path
+
+
+@pytest.fixture
+def dynamic_model(tmp_path):
+    path = tmp_path / "dynamic.onnx"
+    build_dummy_model(path, input_shape=(1, 3, "height", "width"))
     return path

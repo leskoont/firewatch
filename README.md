@@ -110,7 +110,7 @@ python scripts/benchmark.py models/firewatch-yolo11s.onnx --providers cpu cuda
 ultralytics после валидации зовет `torch.cuda.empty_cache()`, а под WDDM память потом не всегда
 выделяется заново. Помогли `--keep-cuda-cache` (отключает этот сброс) и batch 8 вместо 12.
 Экспорт статический (1x3x640x640, opset 17), без NMS в графе: постобработка на numpy в
-`firewatch/ops.py`, имена классов и размер входа берутся из метаданных ONNX.
+`firewatch/ops.py`. Размер входа берется из формы входа графа, имена классов из метаданных ONNX.
 
 ## Запуск
 
