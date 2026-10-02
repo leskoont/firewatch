@@ -4,7 +4,8 @@ import cv2
 import numpy as np
 import pytest
 
-from firewatch.events import ClipRecorder, encode_jpeg, event_stem, save_snapshot
+from firewatch import events
+from firewatch.events import ClipRecorder, encode_jpeg, event_stem, open_writer, save_snapshot
 
 
 class Clock:
@@ -69,3 +70,29 @@ def test_start_without_frames_is_noop(tmp_path):
     rec = ClipRecorder(1.0, 1.0, clock=Clock())
     rec.start(tmp_path / "x.mp4")
     assert not rec.recording
+
+
+def test_writer_choice_is_probed_once(tmp_path, monkeypatch):
+    tried = []
+
+    class Writer:
+        def __init__(self, path, *args):
+            api, fourcc = (None, args[0]) if len(args) == 3 else args[:2]
+            tried.append((api, fourcc))
+            self.ok = fourcc != cv2.VideoWriter_fourcc(*"avc1")
+
+        def isOpened(self):
+            return self.ok
+
+        def release(self):
+            pass
+
+        def getBackendName(self):
+            return "FFMPEG"
+
+    monkeypatch.setattr(events, "_writer_choice", None)
+    monkeypatch.setattr(cv2, "VideoWriter", Writer)
+    assert open_writer(tmp_path / "a.mp4", 10, (64, 64))
+    assert open_writer(tmp_path / "b.mp4", 10, (64, 64))
+    avc1, mp4v = cv2.VideoWriter_fourcc(*"avc1"), cv2.VideoWriter_fourcc(*"mp4v")
+    assert tried == [(None, avc1), (None, mp4v), (cv2.CAP_FFMPEG, mp4v)]

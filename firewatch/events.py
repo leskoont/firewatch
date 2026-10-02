@@ -46,13 +46,37 @@ def save_snapshot(directory: Path, stem: str, jpeg: bytes) -> Path | None:
     return path
 
 
+# (backend, codec) that opened last time. Probing avc1 through the FFmpeg backend first
+# makes Windows builds print OpenH264 errors before OpenCV falls back to Media Foundation,
+# so that happens once and later clips go straight to what worked.
+_writer_choice: tuple[int, str] | None = None
+
+
+def _writer_backend(writer: cv2.VideoWriter) -> int:
+    name = writer.getBackendName()
+    for api in cv2.videoio_registry.getWriterBackends():
+        if cv2.videoio_registry.getBackendName(api) == name:
+            return api
+    return cv2.CAP_ANY
+
+
 def open_writer(path: Path, fps: float, size: tuple[int, int]) -> cv2.VideoWriter | None:
+    global _writer_choice
+    if _writer_choice is not None:
+        api, codec = _writer_choice
+        writer = cv2.VideoWriter(str(path), api, cv2.VideoWriter_fourcc(*codec), fps, size)
+        if writer.isOpened():
+            return writer
+        writer.release()
+        _writer_choice = None
+
     # H.264 plays in browsers and Telegram, mp4v doesn't; not every OpenCV build can encode it
     # (the Linux wheels from PyPI can't, so the Docker image skips avc1 via the env var)
     codecs = os.environ.get("FIREWATCH_CLIP_CODECS", "avc1,mp4v").split(",")
     for codec in filter(None, map(str.strip, codecs)):
         writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*codec), fps, size)
         if writer.isOpened():
+            _writer_choice = (_writer_backend(writer), codec)
             return writer
         writer.release()
     return None
@@ -83,6 +107,7 @@ class ClipRecorder:
         self._clock = clock
         self._buffer: deque[tuple[float, np.ndarray]] = deque()
         self._writer: cv2.VideoWriter | None = None
+        self._size = (0, 0)
         self._stop_at = 0.0
         self._tmp: Path | None = None
         self.path: Path | None = None
