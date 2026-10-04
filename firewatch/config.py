@@ -10,6 +10,8 @@ from typing import Annotated, Any
 import yaml
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints, model_validator
 
+from firewatch.events import safe_name
+
 log = logging.getLogger(__name__)
 
 _ENV_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
@@ -126,6 +128,24 @@ class Settings(Strict):
         dupes = {n for n in names if names.count(n) > 1}
         if dupes:
             raise ValueError(f"duplicate camera names: {sorted(dupes)}")
+        # event files are named after the camera, "Склад 1" and "склад/1" would share them
+        by_file: dict[str, list[str]] = {}
+        for n in names:
+            by_file.setdefault(safe_name(n).casefold(), []).append(n)
+        clashes = [group for group in by_file.values() if len(group) > 1]
+        if clashes:
+            raise ValueError(f"camera names that map to the same event file name: {clashes}")
+        return self
+
+    @model_validator(mode="after")
+    def _warn_unencoded_password(self):
+        for cam in self.cameras:
+            if _raw_reserved_in_password(cam.source):
+                log.warning(
+                    "camera %s: the password in source contains a raw '#', '?' or '/', "
+                    "encode them as %%23, %%3F and %%2F or the stream won't open",
+                    cam.name,
+                )
         return self
 
     @model_validator(mode="after")
@@ -150,6 +170,12 @@ class Settings(Strict):
                     f"camera {cam.name}: thresholds for {sorted(unknown)}, "
                     f"but the model only knows {sorted(names)}"
                 )
+
+
+def _raw_reserved_in_password(source: str) -> bool:
+    # FFmpeg ends the host part at the first '/', '?' or '#', so none of them may stay
+    # unencoded in user:password
+    return bool(re.match(r"\w+://[^/?#@:]*:(?!\d+/)[^@]*[/?#][^@]*@[^/?#@]+(?::\d+)?(?:/|$)", source))
 
 
 def _merge_camera(defaults: dict, cam: Any) -> dict:

@@ -19,10 +19,13 @@ CLIP_MAX_WIDTH = 1280
 _UNSAFE_RE = re.compile(r'[\\/:*?"<>|\s]+')
 
 
+def safe_name(camera: str) -> str:
+    return _UNSAFE_RE.sub("_", camera).strip("._") or "camera"
+
+
 def event_stem(camera: str, when: datetime | None = None) -> str:
     when = when or datetime.now()
-    camera = _UNSAFE_RE.sub("_", camera).strip("._") or "camera"
-    return f"{camera}_{when:%Y%m%d_%H%M%S}_{when.microsecond // 1000:03d}"
+    return f"{safe_name(camera)}_{when:%Y%m%d_%H%M%S}_{when.microsecond // 1000:03d}"
 
 
 def encode_jpeg(image: np.ndarray, quality: int = 90) -> bytes:

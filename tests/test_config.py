@@ -239,6 +239,30 @@ def test_null_thresholds_mean_defaults(tmp_path):
     assert cfg.cameras[0].thresholds == {"fire": 0.4, "smoke": 0.5}
 
 
+@pytest.mark.parametrize(("a", "b"), [("Склад 1", "Склад/1"), ("Gate", "gate"), ("dock:2", "dock 2")])
+def test_names_that_share_event_files(a, b):
+    with pytest.raises(ValidationError, match="same event file name"):
+        Settings(cameras=[CameraConfig(name=a, source="a.mp4"), CameraConfig(name=b, source="b.mp4")])
+
+
+@pytest.mark.parametrize(
+    ("source", "warns"),
+    [
+        ("rtsp://u2:Pa#ss9@10.0.0.1/cam", True),
+        ("rtsp://u2:Pa?ss9@10.0.0.1/cam", True),
+        ("rtsp://u2:Pa/ss9@10.0.0.1/cam", True),
+        ("rtsp://u2:Pa%23ss9@10.0.0.1/cam", False),
+        ("rtsp://u2:p@ss@10.0.0.1/cam", False),
+        ("rtsp://10.0.0.1:554/live@main", False),
+        ("rtsp://u:p@10.0.0.1/live@main", False),
+    ],
+)
+def test_unencoded_password_warns(caplog, source, warns):
+    Settings(cameras=[CameraConfig(name="a", source=source)])
+    assert ("%23" in caplog.text) is warns
+    assert "Pa" not in caplog.text
+
+
 def test_validation_errors_do_not_show_values(tmp_path, capsys):
     from firewatch.cli import load_config
 

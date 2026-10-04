@@ -37,6 +37,11 @@ camera_defaults:
     fire: 0.40
     smoke: 0.50
 
+# A password with "#", "?" or "/" has to be URL-encoded as %23, %3F and %2F,
+# e.g. Pa#ss9 -> Pa%23ss9, otherwise FFmpeg cuts the address at that character.
+# Cheap XMEye/Sofia cameras take credentials in the path instead:
+#   rtsp://192.168.1.10:554/user=admin_password=xxx_channel=1_stream=0.sdp
+# Logs and the API show both forms masked.
 cameras:
   - name: warehouse
     source: rtsp://${CAM1_USER}:${CAM1_PASSWORD}@192.168.1.64:554/Streaming/Channels/102
