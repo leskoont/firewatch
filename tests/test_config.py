@@ -189,6 +189,9 @@ def test_threshold_below_model_conf_warns(caplog):
         "telegram: {enabled: true, token: '1:x', chat_id: }",
         "cameras: [{name: a, source: }]",
         "cameras: [{name: '', source: a.mp4}]",
+        "cameras: [{name: '   ', source: a.mp4}]",
+        "cameras: [{name: a, source: ' '}]",
+        "telegram: {enabled: true, token: '1:x', chat_id: '  '}",
     ],
 )
 def test_empty_required_values(tmp_path, text):
@@ -196,23 +199,44 @@ def test_empty_required_values(tmp_path, text):
         load_settings(write(tmp_path, text))
 
 
+def test_empty_cameras_key(tmp_path):
+    assert load_settings(write(tmp_path, "cameras:")).cameras == []
+
+
 @pytest.mark.parametrize(
     ("text", "error"),
     [
-        ("cameras:", None),
         ("cameras: [rtsp://u:pw@cam/1]", "must be a mapping, got str"),
         ("cameras: {name: a}", "cameras a list"),
         ("- a\n- b", "must be a YAML mapping"),
     ],
 )
 def test_malformed_config(tmp_path, text, error):
-    path = write(tmp_path, text)
-    if error is None:
-        assert load_settings(path).cameras == []
-    else:
-        with pytest.raises(ValueError, match=error) as e:
-            load_settings(path)
-        assert "pw" not in str(e.value)
+    with pytest.raises(ValueError, match=error) as e:
+        load_settings(write(tmp_path, text))
+    assert "pw" not in str(e.value)
+
+
+def test_names_are_stripped(tmp_path):
+    cfg = load_settings(write(tmp_path, "cameras: [{name: ' gate ', source: ' rtsp://cam/1 '}]"))
+    assert (cfg.cameras[0].name, cfg.cameras[0].source) == ("gate", "rtsp://cam/1")
+
+
+def test_null_thresholds_mean_defaults(tmp_path):
+    cfg = load_settings(
+        write(
+            tmp_path,
+            """
+        camera_defaults:
+          thresholds: {fire: 0.3, smoke: 0.6}
+        cameras:
+          - {name: a, source: a.mp4, thresholds: }
+    """,
+        )
+    )
+    assert cfg.cameras[0].thresholds == {"fire": 0.3, "smoke": 0.6}
+    cfg = load_settings(write(tmp_path, "cameras: [{name: a, source: a.mp4, thresholds: }]"))
+    assert cfg.cameras[0].thresholds == {"fire": 0.4, "smoke": 0.5}
 
 
 def test_validation_errors_do_not_show_values(tmp_path, capsys):

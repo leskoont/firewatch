@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints, model_validator
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +43,17 @@ class Strict(BaseModel):
 Score = Annotated[float, Field(ge=0, le=1)]
 
 
+def _as_text(v: Any) -> Any:
+    # `chat_id:` with no value comes from YAML as None, a numeric chat_id or webcam index as int
+    if v is None:
+        return ""
+    return str(v) if isinstance(v, int) and not isinstance(v, bool) else v
+
+
+Text = Annotated[str, BeforeValidator(_as_text), StringConstraints(strip_whitespace=True)]
+NonBlank = Annotated[Text, StringConstraints(min_length=1)]
+
+
 class ModelConfig(Strict):
     path: Path = Path("models/firewatch-yolo11s.onnx")
     providers: str | list[str] = "auto"
@@ -53,15 +64,9 @@ class ModelConfig(Strict):
 
 class TelegramConfig(Strict):
     enabled: bool = False
-    token: str = ""
-    chat_id: str = ""
+    token: Text = ""
+    chat_id: Text = ""
     timeout: float = Field(10.0, gt=0)
-
-    @field_validator("chat_id", mode="before")
-    @classmethod
-    def _chat_id_as_str(cls, v):
-        # `chat_id:` with no value comes from YAML as None
-        return "" if v is None else str(v)
 
     @model_validator(mode="after")
     def _check_credentials(self):
@@ -79,8 +84,8 @@ class StorageConfig(Strict):
 
 
 class CameraConfig(Strict):
-    name: str = Field(min_length=1)
-    source: str = Field(min_length=1)
+    name: NonBlank
+    source: NonBlank
     enabled: bool = True
     process_every: int = Field(3, ge=1)
     window: int = Field(10, ge=1)
@@ -90,11 +95,6 @@ class CameraConfig(Strict):
     thresholds: dict[str, Score] = Field(default_factory=lambda: {"fire": 0.4, "smoke": 0.5}, min_length=1)
     reconnect_delay_s: float = Field(5.0, ge=0)
     loop: bool = False  # restart video files at EOF, handy for demos
-
-    @field_validator("source", mode="before")
-    @classmethod
-    def _source_as_str(cls, v):
-        return str(v) if isinstance(v, int) else v
 
     @model_validator(mode="after")
     def _check_window(self):
@@ -155,6 +155,8 @@ class Settings(Strict):
 def _merge_camera(defaults: dict, cam: Any) -> dict:
     if not isinstance(cam, dict):
         raise ValueError(f"every entry in cameras must be a mapping, got {type(cam).__name__}")
+    # `thresholds:` left empty means "the defaults", not "no classes"
+    cam = {k: v for k, v in cam.items() if not (k == "thresholds" and v is None)}
     merged = {**defaults, **cam}
     if isinstance(defaults.get("thresholds"), dict) and isinstance(cam.get("thresholds"), dict):
         merged["thresholds"] = {**defaults["thresholds"], **cam["thresholds"]}
