@@ -33,6 +33,7 @@ class TelegramNotifier:
         self._base = f"{API_URL}/bot{token}"
         self._client = client or httpx.Client(timeout=timeout)
         self._sleep = time.sleep
+        self._closed = False
 
     def send_text(self, text: str) -> bool:
         return self._post("sendMessage", data={"chat_id": self.chat_id, "text": text})
@@ -52,9 +53,13 @@ class TelegramNotifier:
             if attempt:
                 self._sleep(delay)
                 delay *= 2
+            if self._closed:
+                return False
             try:
                 resp = self._client.post(f"{self._base}/{method}", data=data, files=files)
             except Exception as e:
+                if self._closed:
+                    return False
                 error = redact(f"{type(e).__name__}: {e}")
                 log.warning("telegram %s failed (attempt %d): %s", method, attempt + 1, error)
                 continue
@@ -73,6 +78,8 @@ class TelegramNotifier:
         return False
 
     def close(self) -> None:
+        # a send still running in another thread then fails quietly instead of retrying
+        self._closed = True
         self._client.close()
 
 

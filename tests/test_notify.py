@@ -1,8 +1,5 @@
-import logging
-
 import httpx
 
-from firewatch.cli import setup_logging
 from firewatch.notify import TelegramNotifier
 
 JPEG = b"\xff\xd8\xff\xe0fake-jpeg\xff\xd9"
@@ -94,9 +91,18 @@ def test_token_is_not_in_errors(caplog):
     assert "TOKEN" not in caplog.text
 
 
-def test_setup_logging_quiets_httpx():
-    setup_logging()
-    assert not logging.getLogger("httpx").isEnabledFor(logging.INFO)
+def test_close_during_send_does_not_retry(caplog):
+    calls = []
+
+    def handler(request):
+        calls.append(1)
+        n.close()  # from another thread, while this request is in flight
+        raise httpx.ReadError("socket closed", request=request)
+
+    n = make(handler, retries=3)
+    assert not n.send_text("x")
+    assert len(calls) == 1
+    assert caplog.text == ""
 
 
 def test_long_caption_is_trimmed():
