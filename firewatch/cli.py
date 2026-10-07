@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import logging
 import signal
 import sys
@@ -115,13 +116,22 @@ def cmd_detect(args) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     paths: list[Path] = []
-    for p in map(Path, args.inputs):
+    for arg in args.inputs:
+        p = Path(arg)
         if p.is_dir():
             paths += sorted(x for x in p.iterdir() if x.suffix.lower() in IMAGE_EXTS)
+        elif not p.exists() and any(c in arg for c in "*?["):
+            # cmd and PowerShell don't expand wildcards, the program gets them as is
+            matches = sorted(glob.glob(arg))
+            if not matches:
+                log.warning("nothing matches %s", arg)
+            paths += map(Path, matches)
         else:
             paths.append(p)
 
+    # Windows and macOS file systems ignore case, so fire.jpg would overwrite Fire.jpg
     used: set[str] = set()
+    done = 0
     for p in paths:
         # imread/imwrite choke on non-ASCII paths on Windows
         img = cv2.imdecode(np.fromfile(p, np.uint8), cv2.IMREAD_COLOR) if p.is_file() else None
@@ -132,15 +142,21 @@ def cmd_detect(args) -> None:
 
         ext = p.suffix if p.suffix.lower() in IMAGE_EXTS else ".jpg"
         name, n = p.stem + ext, 1
-        while name in used:
+        while name.casefold() in used:
             name, n = f"{p.stem}_{n}{ext}", n + 1
-        used.add(name)
+        used.add(name.casefold())
         ok, buf = cv2.imencode(ext, draw_detections(img, dets))
-        if ok:
-            (out_dir / name).write_bytes(buf.tobytes())
+        if not ok:
+            log.warning("skip %s: cannot encode %s", p, ext)
+            continue
+        (out_dir / name).write_bytes(buf.tobytes())
+        done += 1
 
         summary = ", ".join(f"{d.label} {d.score:.2f}" for d in dets) or "-"
         print(f"{p} -> {name}: {summary}")
+
+    if not done:
+        sys.exit("no images processed")
 
 
 def main(argv: list[str] | None = None) -> None:
