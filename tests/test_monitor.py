@@ -210,6 +210,8 @@ def test_status_follows_stream_between_frames(tmp_path, frame):
     st = m.statuses()[0]
     assert (st.state, st.connected, st.reconnects) == ("reconnecting", False, 2)
     assert st.source == "rtsp://***@10.0.0.5/live"
+    # the API only gets copies, the worker's own status is not touched
+    assert (w.status.state, w.status.reconnects) == ("running", 0)
     m.stop()
 
 
@@ -268,3 +270,33 @@ def test_stop_does_not_wait_for_a_dead_telegram(caplog):
     assert time.monotonic() - t0 < 1.5
     assert "2 notification(s) not sent" in caplog.text
     n.release.set()
+
+
+def test_put_after_stop_is_logged(caplog):
+    sender = AlertSender(BlockingNotifier())
+    sender.start()
+    sender.stop()
+    sender.put(make_alert("late"))
+    assert "shutting down, alert from late" in caplog.text
+    assert not sender._queue
+
+
+def test_notifier_closed_during_send(caplog):
+    class ClosingNotifier(BlockingNotifier):
+        def send_photo(self, jpeg, caption):
+            self.release.wait(5)
+            raise RuntimeError("Cannot send a request, as the client has been closed.")
+
+    n = ClosingNotifier()
+    sender = AlertSender(n)
+    sender.start()
+    sender.put(make_alert("gate"))
+    time.sleep(0.1)
+    sender.stop(timeout=0.2)
+    n.release.set()  # what notifier.close() does to a request in flight
+    sender.join(2)
+    assert not sender.is_alive()
+    [rec] = caplog.records
+    assert rec.getMessage().startswith("shutting down, alert from gate at ")
+    assert rec.getMessage().endswith(" not sent (RuntimeError)")
+    assert rec.exc_info is None

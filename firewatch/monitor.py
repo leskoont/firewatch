@@ -5,7 +5,7 @@ import logging
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 
 import numpy as np
@@ -183,6 +183,9 @@ class AlertSender(threading.Thread):
 
     def put(self, item: Alert | str) -> None:
         with self._cond:
+            if self._stopping:
+                log.warning("shutting down, %s not sent", _describe(item))
+                return
             if len(self._queue) == self._queue.maxlen:
                 log.warning("notification queue is full, dropping %s", _describe(self._queue[0]))
             self._queue.append(item)
@@ -200,8 +203,12 @@ class AlertSender(threading.Thread):
                     self.notifier.send_text(item)
                 else:
                     self._send(item)
-            except Exception:
-                log.exception("notification failed")
+            except Exception as e:
+                if not self._stopping:
+                    log.exception("notification failed")
+                else:
+                    # the notifier gets closed right after stop(), cutting off what's in flight
+                    log.warning("shutting down, %s not sent (%s)", _describe(item), type(e).__name__)
 
     def _send(self, alert: Alert) -> None:
         n = self.notifier
@@ -212,6 +219,9 @@ class AlertSender(threading.Thread):
                 return
             if attempt():
                 return
+        if self._stopping:
+            log.warning("shutting down, %s not sent", _describe(alert))
+            return
         # the cooldown is already armed by now, so a lost alert has to at least be loud
         log.error("notification failed: alert from %s was not delivered", alert.camera)
 
@@ -270,15 +280,24 @@ class Monitor:
                 w.join(0.5)
 
     def statuses(self) -> list[CameraStatus]:
-        # the stream changes these between frames, e.g. while an RTSP camera is down
+        """Copies of the worker statuses with the stream's connection state filled in."""
         now = time.monotonic()
+        result = []
         for w in self.workers:
-            st = w.status
-            st.connected = w.stream.connected
-            st.reconnects = w.stream.reconnects
-            st.last_frame_age_s = round(now - w.last_frame, 1)
-            if st.state == "running" and not st.connected:
-                st.state = "reconnecting"
-            if st.state in ("connecting", "reconnecting"):
-                st.error = w.stream.error
-        return [w.status for w in self.workers]
+            st, connected = w.status, w.stream.connected
+            state, error = st.state, st.error
+            if state == "running" and not connected:
+                state = "reconnecting"
+            if state in ("connecting", "reconnecting"):
+                error = w.stream.error
+            result.append(
+                replace(
+                    st,
+                    state=state,
+                    error=error,
+                    connected=connected,
+                    reconnects=w.stream.reconnects,
+                    last_frame_age_s=round(now - w.last_frame, 1),
+                )
+            )
+        return result
