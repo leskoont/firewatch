@@ -78,13 +78,16 @@ def create_app(detector, monitor=None, model_name: str = "") -> FastAPI:
             "classes": list(detector.names.values()),
         }
         if monitor is not None:
-            ages = {s.name: s.last_frame_age_s for s in monitor.statuses()}
-            body["last_frame_age_s"] = ages
-            stale = sorted(name for name, age in ages.items() if age is None or age > STALE_AFTER_S)
-            if not ages:
-                body["status"] = "no cameras"
-                response.status_code = 503
-            elif stale:
+            statuses = monitor.statuses()
+            body["cameras"] = len(statuses)
+            body["last_frame_age_s"] = {s.name: s.last_frame_age_s for s in statuses}
+            # a video file without `loop` that reached its end is done, not stuck
+            stale = sorted(
+                s.name
+                for s in statuses
+                if s.state != "stopped" and (s.last_frame_age_s is None or s.last_frame_age_s > STALE_AFTER_S)
+            )
+            if stale:
                 body["status"] = "degraded"
                 body["stale"] = stale
                 response.status_code = 503

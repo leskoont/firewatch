@@ -8,19 +8,22 @@ from fastapi.testclient import TestClient
 
 from firewatch import api
 from firewatch.api import create_app
+from firewatch.config import CameraConfig, Settings
 from firewatch.detector import OnnxDetector
-from firewatch.monitor import CameraStatus
+from firewatch.monitor import CameraStatus, Monitor
 
 
 class FakeMonitor:
-    def __init__(self, gate=1.5, **ages):
+    def __init__(self, gate=1.5, states=None, **ages):
         self.ages = {"gate": gate, **ages} if gate is not None else ages
+        self.states = states or {}
         self.stopped = 0
 
     def statuses(self):
         cams = []
         for name, age in self.ages.items():
-            cam = CameraStatus(name=name, source="rtsp://***@10.0.0.5/1", state="running", alerts=2)
+            state = self.states.get(name, "running")
+            cam = CameraStatus(name=name, source="rtsp://***@10.0.0.5/1", state=state, alerts=2)
             cam.last_frame_age_s = age
             cams.append(cam)
         return cams
@@ -65,11 +68,22 @@ def test_health_degraded_when_one_camera_is_stale(dummy_model):
     assert body["stale"] == ["dock", "yard"]
 
 
-def test_health_without_cameras(dummy_model):
+def test_finished_video_is_not_stale(dummy_model):
     det = OnnxDetector(dummy_model, "CPUExecutionProvider")
-    resp = TestClient(create_app(det, FakeMonitor(gate=None))).get("/health")
-    assert resp.status_code == 503
-    assert resp.json()["status"] == "no cameras"
+    monitor = FakeMonitor(gate=2.0, demo=900.0, states={"demo": "stopped"})
+    resp = TestClient(create_app(det, monitor)).get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+
+
+def test_health_with_all_cameras_disabled(dummy_model):
+    # `run` allows it with a warning: only the API is up
+    det = OnnxDetector(dummy_model, "CPUExecutionProvider")
+    settings = Settings(cameras=[CameraConfig(name="a", source="a.mp4", enabled=False)])
+    resp = TestClient(create_app(det, Monitor(settings, det))).get("/health")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ok"
+    assert resp.json()["cameras"] == 0
 
 
 def test_monitor_is_stopped_on_shutdown(dummy_model):
