@@ -70,6 +70,36 @@ def test_mask_credentials(url, masked):
     assert mask_credentials(url) == masked
 
 
+def test_open_failure_does_not_guess_the_reason():
+    vs = VideoStream(
+        "rtsp://cam",
+        live=True,
+        reconnect_delay=10,
+        capture_factory=lambda s: FakeCapture(0, opened=False),
+    )
+    stop = threading.Event()
+    gen = vs.frames(stop)
+    threading.Timer(0.2, stop.set).start()
+    assert list(gen) == []
+    assert vs.error.startswith("cannot open stream")
+    assert "password" not in vs.error
+
+
+@pytest.mark.parametrize("opened", [False, True])
+def test_stale_reader_keeps_its_hands_off_the_state(opened):
+    # the session ends while the old reader is still inside open()
+    old_session = threading.Event()
+
+    def slow_open(source):
+        old_session.set()
+        return FakeCapture(10, opened=opened)
+
+    vs = VideoStream("rtsp://cam", live=True, capture_factory=slow_open)
+    vs.connected, vs.error, vs.fps = True, None, 12.0
+    vs._reader(old_session)
+    assert (vs.connected, vs.error, vs.fps, vs.reconnects) == (True, None, 12.0, 0)
+
+
 def test_file_frames_are_skipped():
     vs = VideoStream("a.mp4", live=False, every=3, capture_factory=lambda s: FakeCapture(10))
     got = list(vs.frames(threading.Event()))

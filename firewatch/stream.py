@@ -75,6 +75,7 @@ class VideoStream:
 
         self._cond = threading.Condition()
         self._latest: tuple[int, np.ndarray] | None = None
+        self._idx = -1
 
     def frames(self, stop: threading.Event) -> Iterator[tuple[int, np.ndarray]]:
         if self.live:
@@ -128,58 +129,62 @@ class VideoStream:
                 last_idx = item[0]
                 yield item
         finally:
-            halt.set()
             with self._cond:
+                halt.set()
+                self.connected = False
                 self._cond.notify_all()
             reader.join(timeout=5)
 
     def _has_new(self, stop: threading.Event, last_idx: int) -> bool:
         return stop.is_set() or (self._latest is not None and self._latest[0] != last_idx)
 
-    def _reader(self, stop: threading.Event) -> None:
-        self._idx = -1
-        while not stop.is_set():
+    def _reader(self, halt: threading.Event) -> None:
+        while not halt.is_set():
             try:
-                self._read_until_lost(stop)
+                error = self._read_until_lost(halt)
             except Exception as e:
                 error = f"{type(e).__name__}: {e}"
                 if error != self.error:
                     log.exception("%s: reader failed", self.name)
-                self.error = error
-            self.connected = False
-            if not stop.is_set():
-                log.warning("%s: %s, reconnect in %gs", self.name, self.error, self.reconnect_delay)
+            # halt is set under the same lock, so a reader that outlived its join() timeout
+            # can't overwrite what the next session reports
+            with self._cond:
+                if halt.is_set():
+                    return
+                self.connected, self.error = False, error
                 self.reconnects += 1
-                stop.wait(self.reconnect_delay)
+                log.warning("%s: %s, reconnect in %gs", self.name, error, self.reconnect_delay)
+            halt.wait(self.reconnect_delay)
 
-    def _read_until_lost(self, stop: threading.Event) -> None:
+    def _read_until_lost(self, halt: threading.Event) -> str | None:
         cap = self._open(self.source)
         try:
             if not cap.isOpened():
                 # FFmpeg prints the real reason (401, 404...) only to stderr
-                self.error = "cannot open stream, check the address, login and password"
-                return
+                return "cannot open stream: wrong address or credentials, or the camera is down"
+            with self._cond:
+                if halt.is_set():
+                    return None
+                self.connected, self.error = True, None
+                self.fps = cap.get(cv2.CAP_PROP_FPS) or None
             log.info("%s: connected", self.name)
-            self.connected, self.error = True, None
-            self.fps = cap.get(cv2.CAP_PROP_FPS) or None
             last_ok = time.monotonic()
-            while not stop.is_set():
+            while not halt.is_set():
                 ok, frame = cap.read()
                 if not ok:
                     # some backends return False for a moment instead of blocking
                     if time.monotonic() - last_ok > self.read_timeout:
-                        self.error = "no frames, stream lost"
-                        return
-                    stop.wait(0.05)
+                        return "no frames, stream lost"
+                    halt.wait(0.05)
                     continue
                 last_ok = time.monotonic()
                 with self._cond:
-                    # a reader that outlived its join() timeout must not feed the next one
-                    if stop.is_set():
-                        return
+                    if halt.is_set():
+                        return None
                     self._idx += 1
                     if self._idx % self.every == 0:
                         self._latest = (self._idx, frame)
                         self._cond.notify_all()
+            return None
         finally:
             cap.release()
