@@ -1,16 +1,8 @@
-"""Compare the onnxruntime pipeline against ultralytics on real images.
+"""Compare firewatch.OnnxDetector with ultralytics on real test images.
 
-Three checks:
-  raw   - PyTorch head output vs ONNX head output on the same letterboxed tensor
-  onnx  - ultralytics predict on the .onnx vs firewatch.OnnxDetector (same model,
-          tests our pre/postprocessing; scores should match exactly, coordinates
-          within about a pixel because ultralytics re-derives the padding with
-          its own rounding when scaling boxes back)
-  pt    - ultralytics predict on the .pt vs firewatch.OnnxDetector (end to end;
-          small differences are expected: ultralytics pads .pt input to a stride
-          multiple instead of a fixed square)
-
-    python scripts/check_onnx.py runs/yolo11s-dfire/weights/best.pt models/firewatch-yolo11s.onnx
+raw: PyTorch vs ONNX head on the same tensor; onnx: ultralytics on the .onnx (tests our
+pre/postprocessing); pt: ultralytics on the .pt, end to end. The .pt input is padded to a
+stride multiple, not a fixed square, so boxes near the conf threshold can differ.
 """
 
 from __future__ import annotations

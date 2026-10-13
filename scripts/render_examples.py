@@ -1,7 +1,6 @@
 """Render a few test-split predictions for the README.
 
-python scripts/render_examples.py models/firewatch-yolo11s.onnx --pick AoF07841 AoF07976 AoF07834 AoF07977
-python scripts/render_examples.py models/firewatch-yolo11s.onnx      # choose automatically
+python scripts/render_examples.py MODEL [--pick AoF07841 AoF07976 ...]
 """
 
 from __future__ import annotations

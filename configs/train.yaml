@@ -6,8 +6,10 @@ data: data/dfire/dfire.yaml
 epochs: 30
 patience: 15
 imgsz: 640
-batch: 12          # ~3 GB with AMP, still went OOM between epochs on 6 GB under Windows, see README
-workers: 6
+# Epochs 1-6 ran with batch 12 and workers 6 and kept going OOM between epochs on
+# 6 GB under Windows; 7-30 were resumed with these values and --keep-cuda-cache.
+batch: 8
+workers: 3
 cache: false
 
 optimizer: SGD

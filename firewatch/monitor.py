@@ -111,7 +111,7 @@ class CameraWorker(threading.Thread):
 
     def _watch(self) -> None:
         tick, frames = None, 0
-        # if detection throws, the live reader must stop now rather than after the backoff
+        # if detection throws, stop the live reader right away, not after the backoff
         with contextlib.closing(self.stream.frames(self.stop_event)) as stream:
             for idx, frame in stream:
                 dets = self.filter(self.detector(frame))

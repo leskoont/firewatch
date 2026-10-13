@@ -45,8 +45,8 @@ class VideoStream:
     """Yields every `every`-th frame from a file, webcam or network stream.
 
     Live sources are read in a background thread that keeps only the newest frame,
-    so slow inference drops frames instead of accumulating latency. Broken live
-    streams are reopened after `reconnect_delay` seconds.
+    so with slow inference old frames are dropped and latency stays flat. Broken
+    live streams are reopened after `reconnect_delay` seconds.
     """
 
     def __init__(

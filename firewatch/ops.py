@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import cv2
 import numpy as np
 
-# Large enough to separate boxes of different classes in a single NMS pass.
+# class offset for single-pass batched NMS, bigger than any 640 image side
 _CLASS_OFFSET = 7680.0
 
 
