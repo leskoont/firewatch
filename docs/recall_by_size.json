@@ -1,0 +1,53 @@
+{
+  "model": "firewatch-yolo11s.onnx",
+  "thresholds": {
+    "fire": 0.4,
+    "smoke": 0.5
+  },
+  "iou": 0.5,
+  "size": "longer side in px, after letterboxing to 640",
+  "smoke": {
+    "all": {
+      "boxes": 2311,
+      "recall": 0.624
+    },
+    "0-20": {
+      "boxes": 73,
+      "recall": 0.205
+    },
+    "20-32": {
+      "boxes": 163,
+      "recall": 0.411
+    },
+    "32-64": {
+      "boxes": 275,
+      "recall": 0.458
+    },
+    "64+": {
+      "boxes": 1800,
+      "recall": 0.686
+    }
+  },
+  "fire": {
+    "all": {
+      "boxes": 2878,
+      "recall": 0.508
+    },
+    "0-20": {
+      "boxes": 526,
+      "recall": 0.24
+    },
+    "20-32": {
+      "boxes": 495,
+      "recall": 0.436
+    },
+    "32-64": {
+      "boxes": 843,
+      "recall": 0.561
+    },
+    "64+": {
+      "boxes": 1014,
+      "recall": 0.639
+    }
+  }
+}
