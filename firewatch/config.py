@@ -11,6 +11,7 @@ import yaml
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints, model_validator
 
 from firewatch.events import safe_name
+from firewatch.stream import userinfo_end
 
 log = logging.getLogger(__name__)
 
@@ -175,7 +176,8 @@ class Settings(Strict):
 def _raw_reserved_in_password(source: str) -> bool:
     # FFmpeg ends the host part at the first '/', '?' or '#', so none of them may stay
     # unencoded in user:password
-    return bool(re.match(r"\w+://[^/?#@:]*:(?!\d+/)[^@]*[/?#][^@]*@[^/?#@]+(?::\d+)?(?:/|$)", source))
+    end = userinfo_end(source)
+    return end >= 0 and bool(re.search(r"[/?#]", source[source.find("://") + 3 : end]))
 
 
 def _merge_camera(defaults: dict, cam: Any) -> dict:

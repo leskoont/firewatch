@@ -50,7 +50,27 @@ class FakeCapture:
         ("rtsp://10.0.0.2/s", "rtsp://10.0.0.2/s"),
         ("rtsp://admin:p@ss@10.0.0.2/s", "rtsp://***@10.0.0.2/s"),
         ("rtsp://admin:p%40ss%2Fw0rd@10.0.0.2/s", "rtsp://***@10.0.0.2/s"),
+        # an '@' in the path is not userinfo, unless the password has a raw '/'
         ("rtsp://u:p@10.0.0.2/live@main", "rtsp://***@10.0.0.2/live@main"),
+        ("rtsp://10.0.0.2:554/live@main", "rtsp://10.0.0.2:554/live@main"),
+        ("http://cam1.lan/stream@1.mjpg", "http://cam1.lan/stream@1.mjpg"),
+        ("rtsp://admin:12/34@10.0.0.2/s", "rtsp://***@10.0.0.2/s"),
+        ("rtsp://u:p@ss#1@10.0.0.2/s", "rtsp://***@10.0.0.2/s"),
+        ("rtsp://admin:secret@10.0.0.2:554/admin:secret@x", "rtsp://***@x"),
+        (
+            "http://10.0.0.3/video.mjpg?user=me@corp.com&pwd=x",
+            "http://10.0.0.3/video.mjpg?user=me@corp.com&pwd=***",
+        ),
+        ("http://10.0.0.3:8080/video?login=me@x.org", "http://10.0.0.3:8080/video?login=me@x.org"),
+        ("rtsp://admin:pa/ss@10.0.0.2:554/s", "rtsp://***@10.0.0.2:554/s"),
+        ("rtsp://admin:pa#ss@10.0.0.2:554/s", "rtsp://***@10.0.0.2:554/s"),
+        ("rtsp://admin:pa?ss@10.0.0.2:554/s", "rtsp://***@10.0.0.2:554/s"),
+        ("rtsp://admin:pw@[fe80::1]:554/s", "rtsp://***@[fe80::1]:554/s"),
+        ("rtsp://[fe80::1:554/s", "rtsp://[fe80::1:554/s"),
+        ("rtsp://admin:secret\n@10.0.0.2/s", "rtsp://***@10.0.0.2/s"),
+        ("rtsp://admin:se cret@10.0.0.2/s", "rtsp://***@10.0.0.2/s"),
+        ("RTSP://Admin:Secret@10.0.0.2/s", "RTSP://***@10.0.0.2/s"),
+        ("rtsp://user@10.0.0.2/s", "rtsp://***@10.0.0.2/s"),
         (
             "rtsp://10.0.0.2:554/user=admin_password=secret_channel=1_stream=0.sdp",
             "rtsp://10.0.0.2:554/user=admin_password=***_channel=1_stream=0.sdp",
@@ -62,12 +82,32 @@ class FakeCapture:
         ("http://cam/snap?loginuse=admin&loginpas=secret", "http://cam/snap?loginuse=admin&loginpas=***"),
         ("http://cam/s?pass=x", "http://cam/s?pass=***"),
         ("http://10.0.0.3/video.cgi?user=admin&pwd=secret", "http://10.0.0.3/video.cgi?user=admin&pwd=***"),
+        (
+            "rtsp://10.0.0.2/user=admin&password=sec_ret&channel=1",
+            "rtsp://10.0.0.2/user=admin&password=***&channel=1",
+        ),
+        ("http://cam/mjpg?usr=admin&passwd=hun_ter2", "http://cam/mjpg?usr=admin&passwd=***"),
+        ("http://cam/videostream.cgi?user=admin&pw=hunter2", "http://cam/videostream.cgi?user=admin&pw=***"),
+        ("http://cam/mjpg?user=admin&secret=hunter2", "http://cam/mjpg?user=admin&secret=***"),
+        ("https://u:tok@cam.example.com/mjpeg?token=abc.def", "https://***@cam.example.com/mjpeg?token=***"),
         ("http://cam/mjpg?Token=abc&fps=5", "http://cam/mjpg?Token=***&fps=5"),
+        # in the query '_' is part of the key or the value, not a separator
+        ("http://cam/snap.cgi?user=admin&login_pwd=sec_ret", "http://cam/snap.cgi?user=admin&login_pwd=***"),
+        ("http://cam/cgi?cam_password=abc_def&x=1", "http://cam/cgi?cam_password=***&x=1"),
+        ("http://cam/cgi?user_pass=abc_def", "http://cam/cgi?user_pass=***"),
+        ("http://cam/cgi?a=1&_token=abc_def", "http://cam/cgi?a=1&_token=***"),
+        ("rtsp://cam/s?keyframe=1&key=abc", "rtsp://cam/s?keyframe=1&key=***"),
+        ("data/videos/key=1.mp4", "data/videos/key=1.mp4"),
         ("videos/a.mp4", "videos/a.mp4"),
+        ("data/videos/a@b.mp4", "data/videos/a@b.mp4"),
+        (r"C:\videos\me@home.mp4", r"C:\videos\me@home.mp4"),
+        ("//nas/share/a@b.mp4", "//nas/share/a@b.mp4"),
+        ("0", "0"),
     ],
 )
 def test_mask_credentials(url, masked):
     assert mask_credentials(url) == masked
+    assert mask_credentials(masked) == masked
 
 
 def test_open_failure_does_not_guess_the_reason():
@@ -98,6 +138,21 @@ def test_stale_reader_keeps_its_hands_off_the_state(opened):
     vs.connected, vs.error, vs.fps = True, None, 12.0
     vs._reader(old_session)
     assert (vs.connected, vs.error, vs.fps, vs.reconnects) == (True, None, 12.0, 0)
+
+
+def test_logs_name_the_camera(caplog):
+    vs = VideoStream(
+        "rtsp://admin:secret@10.0.0.2/s",
+        live=True,
+        reconnect_delay=10,
+        capture_factory=lambda s: FakeCapture(0, opened=False),
+        camera="gate",
+    )
+    stop = threading.Event()
+    threading.Timer(0.2, stop.set).start()
+    assert list(vs.frames(stop)) == []
+    assert "camera gate (rtsp://***@10.0.0.2/s): cannot open stream" in caplog.text
+    assert "secret" not in caplog.text
 
 
 def test_file_frames_are_skipped():

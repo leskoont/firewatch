@@ -76,6 +76,7 @@ class CameraWorker(threading.Thread):
             every=cfg.process_every,
             reconnect_delay=cfg.reconnect_delay_s,
             loop=cfg.loop,
+            camera=cfg.name,
         )
         self.recorder = ClipRecorder(storage.clip_before_s, storage.clip_after_s) if storage.clips else None
         # counts from start too, so a camera that never connects goes stale in /health

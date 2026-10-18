@@ -251,6 +251,8 @@ def test_names_that_share_event_files(a, b):
         ("rtsp://u2:Pa#ss9@10.0.0.1/cam", True),
         ("rtsp://u2:Pa?ss9@10.0.0.1/cam", True),
         ("rtsp://u2:Pa/ss9@10.0.0.1/cam", True),
+        ("rtsp://u2:12/34Pa@10.0.0.1/cam", True),
+        ("rtsp://u2:Pa@ss#9@10.0.0.1/cam", True),
         ("rtsp://u2:Pa%23ss9@10.0.0.1/cam", False),
         ("rtsp://u2:p@ss@10.0.0.1/cam", False),
         ("rtsp://10.0.0.1:554/live@main", False),

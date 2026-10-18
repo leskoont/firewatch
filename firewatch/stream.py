@@ -7,7 +7,6 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from functools import partial
-from urllib.parse import urlsplit
 
 import cv2
 import numpy as np
@@ -17,20 +16,48 @@ log = logging.getLogger(__name__)
 # udp gives smeared gray frames on wifi
 os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
 
-# also catches path-style credentials, e.g. XMEye: /user=admin_password=xxx_channel=1
-_SECRET_RE = re.compile(r"(pas\w*|pwd|token|key|auth)=[^&_/?#]*", re.IGNORECASE)
+_KEYS = r"(pas\w*|pwd|pw|secret|token|key|auth)="
+# XMEye cameras put credentials in the path, /user=admin_password=xxx_channel=1,
+# so "_" ends a value there. In the query a value runs to the next "&".
+_XMEYE_SECRET_RE = re.compile(r"(?<=[/_])" + _KEYS + r"[^_/&?#]*", re.IGNORECASE)
+_PATH_SECRET_RE = re.compile(r"(?<![/_])" + _KEYS + r"[^&]*", re.IGNORECASE)
+_QUERY_SECRET_RE = re.compile(_KEYS + r"[^&]*", re.IGNORECASE)
+
+
+def userinfo_end(url: str) -> int:
+    """Index of the "@" that ends user:password in url, -1 if there is none."""
+    start = url.find("://") + 3
+    if start < 3:
+        return -1
+    slash = url.find("/", start)
+    if slash < 0:
+        return url.rfind("@", start)
+    # FFmpeg takes the last "@" before the first "/". A raw "/" in the password moves
+    # that "@" into the path, where it looks just like /live@main, so a path "@" counts
+    # only after a user:pass segment or, with no "@" up front, before a host-like part.
+    end = url.rfind("@", start, slash)
+    _, colon, port = url[start:slash].partition(":")
+    query = url.find("?", slash)
+    path = url[slash:query] if query >= 0 else url[slash:]
+    at = len(path)
+    while (at := path.rfind("@", 0, at)) > 0:
+        segment = path[path.rfind("/", 0, at) + 1 : at]
+        host = path[at + 1 :].split("/", 1)[0]
+        if ":" in segment or (end < 0 and colon and (not port.isdigit() or re.search(r"[.:\[]", host))):
+            return slash + at
+    return end
 
 
 def mask_credentials(url: str) -> str:
-    try:
-        netloc = urlsplit(url).netloc
-    except ValueError:
-        return "***"
-    if "@" in netloc:
-        # a raw '@' in the password is fine, FFmpeg also splits at the last one
-        start = url.find(netloc)
-        url = f"{url[:start]}***@{netloc.rpartition('@')[2]}{url[start + len(netloc) :]}"
-    return _SECRET_RE.sub(r"\1=***", url)
+    # local paths are left alone, data/videos/key=1.mp4 is just a file name
+    if "://" not in url:
+        return url
+    end = userinfo_end(url)
+    if end >= 0:
+        url = url[: url.find("://") + 3] + "***" + url[end:]
+    path, sep, query = url.partition("?")
+    path = _PATH_SECRET_RE.sub(r"\1=***", _XMEYE_SECRET_RE.sub(r"\1=***", path))
+    return path + sep + _QUERY_SECRET_RE.sub(r"\1=***", query)
 
 
 def open_capture(source: str, timeout_ms: int = 10_000) -> cv2.VideoCapture:
@@ -58,9 +85,12 @@ class VideoStream:
         loop: bool = False,
         capture_factory: Callable[[str], cv2.VideoCapture] = open_capture,
         read_timeout: float = 10.0,
+        camera: str = "",
     ):
         self.source = source
         self.name = mask_credentials(source)
+        if camera:
+            self.name = f"camera {camera} ({self.name})"
         self.live = live
         self.every = max(1, every)
         self.reconnect_delay = reconnect_delay
