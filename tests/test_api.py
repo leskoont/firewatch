@@ -160,3 +160,10 @@ def test_cameras(client):
 def test_cameras_without_monitor(dummy_model):
     det = OnnxDetector(dummy_model, "CPUExecutionProvider")
     assert TestClient(create_app(det)).get("/cameras").json() == []
+
+
+def test_health_without_monitor(dummy_model):
+    det = OnnxDetector(dummy_model, "CPUExecutionProvider")
+    body = TestClient(create_app(det)).get("/health").json()
+    assert body["status"] == "ok"
+    assert (body["cameras"], body["last_frame_age_s"]) == (0, {})

@@ -52,6 +52,15 @@ def test_detect_expands_wildcards(dummy_model, tmp_path, capsys):
     assert sorted(p.name for p in out.iterdir()) == ["a.png", "b.png"]
 
 
+def test_detect_recursive_wildcard(dummy_model, tmp_path):
+    (tmp_path / "a" / "b").mkdir(parents=True)
+    (tmp_path / "a" / "b" / "deep.png").write_bytes(png_bytes())
+    (tmp_path / "top.png").write_bytes(png_bytes())
+    out = tmp_path / "out"
+    main(["detect", str(tmp_path / "**" / "*.png"), "-m", str(dummy_model), "-o", str(out)])
+    assert sorted(p.name for p in out.iterdir()) == ["deep.png", "top.png"]
+
+
 def test_detect_encode_failure_is_not_counted(dummy_model, tmp_path, monkeypatch):
     (tmp_path / "a.png").write_bytes(png_bytes())
     monkeypatch.setattr(cv2, "imencode", lambda ext, img: (False, None))

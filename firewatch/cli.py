@@ -122,7 +122,7 @@ def cmd_detect(args) -> None:
             paths += sorted(x for x in p.iterdir() if x.suffix.lower() in IMAGE_EXTS)
         elif not p.exists() and any(c in arg for c in "*?["):
             # cmd and PowerShell don't expand wildcards, the program gets them as is
-            matches = sorted(glob.glob(arg))
+            matches = sorted(glob.glob(arg, recursive=True))
             if not matches:
                 log.warning("nothing matches %s", arg)
             paths += map(Path, matches)

@@ -77,20 +77,19 @@ def create_app(detector, monitor=None, model_name: str = "") -> FastAPI:
             "providers": detector.providers,
             "classes": list(detector.names.values()),
         }
-        if monitor is not None:
-            statuses = monitor.statuses()
-            body["cameras"] = len(statuses)
-            body["last_frame_age_s"] = {s.name: s.last_frame_age_s for s in statuses}
-            # a video file without `loop` that reached its end is done, not stuck
-            stale = sorted(
-                s.name
-                for s in statuses
-                if s.state != "stopped" and (s.last_frame_age_s is None or s.last_frame_age_s > STALE_AFTER_S)
-            )
-            if stale:
-                body["status"] = "degraded"
-                body["stale"] = stale
-                response.status_code = 503
+        statuses = monitor.statuses() if monitor is not None else []
+        body["cameras"] = len(statuses)
+        body["last_frame_age_s"] = {s.name: s.last_frame_age_s for s in statuses}
+        # a video file without `loop` that reached its end is done, not stuck
+        stale = sorted(
+            s.name
+            for s in statuses
+            if s.state != "stopped" and (s.last_frame_age_s is None or s.last_frame_age_s > STALE_AFTER_S)
+        )
+        if stale:
+            body["status"] = "degraded"
+            body["stale"] = stale
+            response.status_code = 503
         return body
 
     @upload.post("/detect")
