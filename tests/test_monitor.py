@@ -79,6 +79,25 @@ def test_alert_on_a_miss_frame_shows_last_boxes(tmp_path, frame):
     assert alerts[1].jpeg.startswith(b"\xff\xd8")
 
 
+def test_alert_is_sent_before_the_clip_starts(tmp_path, frame):
+    events = []
+    w = make_worker(tmp_path, None, [])
+    w.on_alert = lambda alert: events.append("alert")
+
+    class Recorder:
+        def push(self, frame, t):
+            pass
+
+        def start(self, path):
+            events.append("clip")
+            return True
+
+    w.recorder = Recorder()
+    for _ in range(3):
+        w._process(frame, [det("fire", 0.9)])
+    assert events == ["alert", "clip"]
+
+
 def test_flicker_does_not_alert(tmp_path, frame):
     alerts = []
     w = make_worker(tmp_path, None, alerts)

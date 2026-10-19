@@ -153,15 +153,16 @@ class CameraWorker(threading.Thread):
         now = datetime.now()
         stem = event_stem(self.cfg.name, now)
         alert = Alert(self.cfg.name, due, scored, encode_jpeg(draw_detections(image, shown)), now)
-        saved = []
-        if self.storage.snapshots and save_snapshot(self.storage.dir, stem, alert.jpeg):
-            saved.append(f"{stem}.jpg")
-        if self.recorder and self.recorder.start(self.storage.dir / f"{stem}.mp4"):
-            saved.append(f"{stem}.mp4")
         st.alerts += 1
         st.last_alert_at = now.isoformat(timespec="seconds")
-        log.warning("ALERT %s (%s)", alert.caption.replace("\n", ", "), ", ".join(saved) or "nothing saved")
+        # opening a VideoWriter waits while any camera is stuck opening its stream
+        # (OpenCV holds one FFmpeg lock for both), so the alert and the log go first
         self.on_alert(alert)
+        jpg = self.storage.snapshots and save_snapshot(self.storage.dir, stem, alert.jpeg)
+        log.warning("ALERT %s (%s)", alert.caption.replace("\n", ", "), jpg.name if jpg else "no snapshot")
+        # the clip gets its own "clip saved" line once it is written
+        if self.recorder:
+            self.recorder.start(self.storage.dir / f"{stem}.mp4")
 
     def stop(self) -> None:
         self.stop_event.set()
