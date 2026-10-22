@@ -9,7 +9,7 @@ description = "Fire and smoke detection on video streams with Telegram alerts"
 readme = "README.md"
 license = { text = "AGPL-3.0-only" }
 requires-python = ">=3.10"
-authors = [{ name = "Maxim" }]
+authors = [{ name = "Max Nikonov" }]
 dependencies = [
     "numpy>=1.24",  # enough for the service; the train extra needs 2.x
     "pyyaml>=6.0",

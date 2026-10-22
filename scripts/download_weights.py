@@ -1,8 +1,4 @@
-"""Fetch the exported ONNX model from GitHub Releases into models/.
-
-python scripts/download_weights.py
-python scripts/download_weights.py --tag v0.2.0
-"""
+"""Fetch the exported ONNX model from GitHub Releases into models/."""
 
 from __future__ import annotations
 
@@ -16,8 +12,9 @@ import httpx
 REPO = "leskoont/firewatch"
 ASSET = "firewatch-yolo11s.onnx"
 DEFAULT_TAG = "v0.1.0"
-# tag -> sha256 of the asset, added when a release is published
-SHA256: dict[str, str] = {}
+SHA256 = {
+    "v0.1.0": "1ab25ae6a26e711542e5b5e9670611476719532bc00ef1bd1a1657c01f24c2b4",
+}
 
 
 def main() -> None:
