@@ -129,7 +129,7 @@ class Settings(Strict):
         dupes = {n for n in names if names.count(n) > 1}
         if dupes:
             raise ValueError(f"duplicate camera names: {sorted(dupes)}")
-        # event files are named after the camera, "Склад 1" and "склад/1" would share them
+        # event files are named after the camera, "Warehouse 1" and "warehouse/1" would share them
         by_file: dict[str, list[str]] = {}
         for n in names:
             by_file.setdefault(safe_name(n).casefold(), []).append(n)

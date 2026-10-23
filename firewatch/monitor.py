@@ -265,7 +265,7 @@ class Monitor:
             w.start()
         if self.sender is not None:
             self.sender.start()
-            self.sender.put(f"firewatch запущен, камер: {len(self.workers)}")
+            self.sender.put(f"firewatch started, cameras: {len(self.workers)}")
 
     def stop(self, timeout: float = 5.0) -> None:
         for w in self.workers:
